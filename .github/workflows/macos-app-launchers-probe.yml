@@ -1,33 +1,24 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
 # Copyright (C) 2026 HASON TECH
-name: macOS app launchers probe
-# HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF (HST Office.app/Contents/Helpers, copied to /Applications at
-# the first start): no copy from the .dmg, the one-time notice, no duplicate after a second start or an update, each
-# launcher opens its module from a stopped office and into a running one, removal and re-adding from the options, the
-# Trash offer when HST Office is gone, "Thêm vào Dock", and HST Base offered nowhere while an .odb still opens. Needs a
-# desktop-macos build that contains the launchers (scripts/macos/make-app-launchers.py); the signed dmg is used when
-# that run has one (Gatekeeper checks of the copies run only then).
+name: macOS verify 1.0.4 full screen dialogs (probe branch)
+# Opens a dialog in native full screen while another document opens (stock code of the signed arm64 dmg of a
+# Desktop macOS run). Evidence only; nothing is published.
 on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'Desktop macOS run whose arm64 dmg is probed'
+        description: 'Desktop macOS run id whose signed arm64 dmg is probed'
         type: string
         required: true
-      checks:
-        description: 'all = signature of the copied launchers, then the full probe; signature = only the first part (any build with launchers, e.g. a signed release)'
-        type: choice
-        options: [all, signature]
-        default: all
 permissions:
   contents: read
 concurrency:
-  group: macos-app-launchers-probe
+  group: macos-verify-1-0-4-fsdialog
   cancel-in-progress: false
 jobs:
   probe:
     runs-on: macos-15
-    timeout-minutes: 75
+    timeout-minutes: 45
     permissions:
       contents: read
       actions: read
@@ -35,62 +26,31 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Compile the launcher stub of this checkout
-        # The same clang command as the build (make-app-launchers.py): a stub that no longer compiles shows here in
-        # a minute instead of at the end of a three-hour build.
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -I -c '
-          import importlib.util, tempfile
-          spec = importlib.util.spec_from_file_location("make", "scripts/macos/make-app-launchers.py")
-          make = importlib.util.module_from_spec(spec); spec.loader.exec_module(make)
-          with tempfile.TemporaryDirectory() as tmp:
-              make.compile_stub(tmp + "/hst-app-launcher", "arm64", "11.0")
-          '
-      - name: Download the arm64 dmg of the build
+      - name: Download the signed arm64 dmg
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.run_id }}
         run: |
-          set -euo pipefail
-          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          set -eu
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id" >&2; exit 1; }
           mkdir -p "$RUNNER_TEMP/dmg"
-          signed="hst-office-macos-arm64-dmg-signed-$RUN_ID"
-          count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" --paginate \
-            --jq ".artifacts[] | select(.name == \"$signed\" and .expired == false) | .id" | wc -l | tr -d ' ')
-          artifact="hst-office-macos-arm64-dmg-$RUN_ID"
-          if [ "$count" = 1 ]; then artifact="$signed"; fi
-          echo "artifact: $artifact"
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/dmg"
-      - name: Signature of the launchers copied out of the bundle
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "hst-office-macos-arm64-dmg-signed-$RUN_ID" --dir "$RUNNER_TEMP/dmg"
+          find "$RUNNER_TEMP/dmg" -name '*.dmg'
+      - name: Probe dialogs in full screen when another document opens
         shell: bash
         run: |
-          set -euo pipefail
+          set -eu
           dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
-          [ -n "$dmg" ] || { echo "no dmg in the artifact" >&2; exit 1; }
-          bash scripts/macos/launcher-copy-signature-check.sh "$dmg" "$RUNNER_TEMP/launchers"
-      - name: Probe the launchers
-        if: ${{ inputs.checks == 'all' && !cancelled() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
-          [ -n "$dmg" ] || { echo "no dmg in the artifact" >&2; exit 1; }
-          bash scripts/macos/app-launchers-probe.sh "$dmg" "$RUNNER_TEMP/launchers"
-      - name: Summarize
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          if [ -f "$RUNNER_TEMP/launchers/summary.md" ]; then
-            cat "$RUNNER_TEMP/launchers/summary.md" >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Upload probe evidence
+          bash scripts/macos/fsdialog-probe.sh "$dmg" "$RUNNER_TEMP/fsdialog/stock" || true
+          for f in "$RUNNER_TEMP/fsdialog/stock"/*.json; do [ -f "$f" ] && { echo "$f"; cat "$f"; }; done >> "$GITHUB_STEP_SUMMARY" || true
+          [ -f "$RUNNER_TEMP/fsdialog/stock/summary.md" ] && cat "$RUNNER_TEMP/fsdialog/stock/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Upload evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: macos-app-launchers-probe-${{ github.run_id }}
-          path: ${{ runner.temp }}/launchers/
+          name: macos-verify-1-0-4-fsdialog-${{ github.run_id }}
+          path: ${{ runner.temp }}/fsdialog/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14

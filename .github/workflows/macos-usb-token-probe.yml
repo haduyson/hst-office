@@ -73,7 +73,17 @@ jobs:
           log "== spctl app (execute)"
           spctl --assess --type execute -vvv "$app" >>"$out" 2>&1; log "spctl app exit $?"
           log "== stapler app"
-          xcrun stapler validate "$app" >>"$out" 2>&1; log "stapler app exit $?"
+          xcrun stapler validate "$app" >>"$out" 2>&1 || true; log "stapler app exit (expected 65: the ticket is on the dmg)"
+          log "== About text in the shipped cui library (UTF-8 and UTF-16LE)"
+          python3 - "$app" >>"$out" 2>&1 <<'PY' || true
+          import pathlib, sys
+          app = pathlib.Path(sys.argv[1])
+          lib = next(app.glob("Contents/Frameworks/libcuilo.dylib"), None)
+          data = lib.read_bytes() if lib else b""
+          pats = {"new notice": "Phần mềm độc quyền của HASON TECH", "AGPL": "AGPL", "HASON TECH": "HASON TECH"}
+          for name, text in pats.items():
+              print(f"cuilo {name}: utf8={data.count(text.encode('utf-8'))} utf16={data.count(text.encode('utf-16-le'))}")
+          PY
           hdiutil detach "$mnt" >/dev/null 2>&1 || true
       - name: Upload evidence
         if: ${{ always() }}
