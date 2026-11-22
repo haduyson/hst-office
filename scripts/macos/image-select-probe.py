@@ -83,7 +83,9 @@ def main(pid, docx, out, label):
     # Maximise the frame so the picture is on screen, then bring the app to the front.
     win = doc.CurrentController.Frame.ContainerWindow
     try:
-        win.setPosSize(0, 30, 1400, 850, 15)
+        w, h = (int(v) for v in os.environ.get("PROBE_WIN", "1400x850").split("x"))
+        win.setPosSize(0, 30, w, h, 15)
+        result["window"] = [w, h]
     except Exception as exc:  # noqa: BLE001
         result["possize_error"] = str(exc)
     time.sleep(3)
@@ -97,8 +99,7 @@ def main(pid, docx, out, label):
     result["before"] = selection(doc)
     if found:
         x, y, _n, pw, _ph = found
-        pts_w = result["screen_points"][0] or pw
-        scale = pw / pts_w
+        scale = float(os.environ.get("PROBE_SCALE", "0")) or pw / (result["screen_points"][0] or pw)
         cx, cy = int(x / scale), int(y / scale)
         result["click_points"] = [cx, cy]
         r = tab_probe.click_keys(f"m:{cx},{cy}", "w:300", f"c:{cx},{cy}")
