@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Deterministic icon archives and directory sync for build-hst-icon-theme.py."""
 import io
 import zipfile
@@ -55,5 +56,5 @@ COPYING = (
     "the HASON TECH mark of res/mainapp_* in brand blue (branding/icon-themes/\n"
     "hasontech-mark.svg); a HASON TECH trademark, not a CC BY glyph.\n"
     "The artwork and source licences grant no trademark rights (see product NOTICE).\n"
-    "Generator and mapping code: AGPL-3.0-only, in the source repository.\n"
+    "Generator and mapping code: proprietary to HASON TECH, not part of this archive and not under CC BY.\n"
 )

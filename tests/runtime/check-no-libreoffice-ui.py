@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that the HST Office build does not name LibreOffice / The Document Foundation in its UI.
 
 Usage: python3 tests/runtime/check-no-libreoffice-ui.py [--instdir upstream/libreoffice/instdir]
@@ -8,8 +9,10 @@ Usage: python3 tests/runtime/check-no-libreoffice-ui.py [--instdir upstream/libr
     URL and no "github", and that text is compiled into the installed program.
 (b) Every installed Vietnamese .mo is free of "LibreOffice" / "Document Foundation" except
     the allow-listed entries (legal texts, engine version notes).
-(c) The source-code notice (contact e-mail, no URL) is at the top of the licence document
-    (LICENSE.html / LICENSE) and in the Help > License Information dialog source.
+(c) The HST section at the top of the licence document (LICENSE.html / LICENSE), before the upstream
+    licence text, says HST Office is proprietary, carries the HST Office Software Terms of Use and the
+    source-code notice for the MPL/LGPL/GPL components (contact e-mail, no URL); the Help > License
+    Information dialog source carries the same notice.
 (d) No "github" (any case) in installed UI resources: .mo catalogues, registry .xcd, menubar /
     notebookbar / dialog definitions under share/config, the HST extension. Allow-listed with a
     reason: the licence documents (third-party sections), the bundled third-party dictionary
@@ -77,12 +80,18 @@ def check_licence(instdir, src, failures):
             failures.append(f"{name} not installed")
             continue
         with open(path, encoding="utf-8", errors="replace") as handle:
-            head = handle.read(6000)
+            head = handle.read(40000)
         start = head.find("HST Office l")  # Vietnamese notice paragraph
         end = head.find("This product is made available subject")  # upstream licence text
         section = head[start:end] if 0 <= start < end else ""
-        if NOTICE_MAIL not in section or "HST Office is open-source" not in section:
-            failures.append(f"{name}: no HST source-code notice before the upstream licence text")
+        if NOTICE_MAIL not in section or "HST Office is proprietary software of HASON TECH" not in section:
+            failures.append(f"{name}: no HST licence and source-code notice before the upstream licence text")
+        for terms in ("\u0110i\u1EC1u kho\u1EA3n s\u1EED d\u1EE5ng ph\u1EA7n m\u1EC1m HST Office",
+                      "HST Office Software Terms of Use", "MPL, LGPL ho\u1EB7c GPL", "MPL, LGPL or GPL"):
+            if terms not in section:
+                failures.append(f"{name}: HST section lacks {terms!r}")
+        if "open-source software;" in section or "ph\u1EA7n m\u1EC1m ngu\u1ED3n m\u1EDF;" in section:
+            failures.append(f"{name}: HST section still calls HST Office open-source software")
         if re.search(r"https?://|github", section, re.IGNORECASE):
             failures.append(f"{name}: HST notice section contains a URL")
     with open(os.path.join(src, "sfx2/source/appl/appserv.cxx"), encoding="utf-8") as handle:

@@ -21,8 +21,8 @@ trong `res/mainapp_*`, tô màu xanh thương hiệu. Đây là **nhãn hiệu c
 không thuộc CC BY 4.0; `COPYING.txt` trong gói ghi rõ ngoại lệ này
 (xem [NOTICE.md](../../NOTICE.md)).
 
-Các script Python, cấu hình và bảng ánh xạ mới của HST dùng **AGPL-3.0-only**,
-phù hợp quy ước cho mã mới/generator trong [NOTICE.md](../../NOTICE.md),
+Các script Python, cấu hình và bảng ánh xạ mới của HST là **mã độc quyền của HASON TECH**
+(`LicenseRef-HST-Proprietary`, không thuộc CC BY 4.0), theo quy ước cho mã mới/generator trong [NOTICE.md](../../NOTICE.md),
 [kiểm kê giấy phép](../../docs/LICENSE_AUDIT.md) và [LICENSE](../../LICENSE).
 Đường dẫn từ thư mục này đến gốc repo là `../../`.
 

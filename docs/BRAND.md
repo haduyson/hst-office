@@ -20,7 +20,7 @@
 | `branding/windows/hst-office.ico`, `branding/macos/hst-{office,writer,sheets,slides,draw,math,base}.icns` | Container 16–256 px / 16–1024 px do Pillow ghi; `hst-office.icns` là icon volume dmg |
 | `branding/windows/app-icons/{soffice,*_app}.ico`, `branding/icon-themes/mainapp-*` | `.ico` 16–256 cho từng module và icon cửa sổ/Start Center. `scripts/brand/apply-icon-overrides.py` chép vào cây nguồn |
 | `branding/linux/hst-{office,writer,sheets,slides}.desktop` | Launcher Linux (viết tay, `desktop-file-validate` đạt) |
-| `branding/credits.html` | Trang ghi nhận nguồn mở (viết tay); trợ giúp ngoại tuyến: `docs/user-guide/` |
+| `branding/credits.html` | Trang giấy phép và ghi nhận tác giả (viết tay); trợ giúp ngoại tuyến: `docs/user-guide/` |
 | `branding/brand-audit-allowlist.json` | Ngoại lệ cho quét tên nguồn gốc: giấy phép, ghi nhận tác giả, chú thích bản quyền và khai báo DTD ngoài giao diện |
 
 `branding/libreoffice/` (tên file do `configure.ac:15571` bắt buộc; thiếu file → configure chỉ cảnh báo và dùng ảnh upstream):
@@ -77,5 +77,5 @@ Module [start_center_banner.py](../scripts/brand/start_center_banner.py) đượ
 ## Phạm vi sử dụng
 
 - Dùng cho splash/About/Start Center, icon ứng dụng, launcher, mẫu tài liệu (khi phù hợp), tài liệu và README của HST Office (engine LibreOffice).
-- About chỉ có một câu "Phần mềm nguồn mở — xem Trợ giúp → Thông tin giấy phép." (không URL nào trỏ tới kho mã/GitHub/kho extension: kho có thể đổi chỗ; cách nhận mã nguồn nằm ở đầu tài liệu giấy phép, liên hệ lienhe@hasontech.vn), không nêu tên/bản quyền LibreOffice (tên chỉ nằm trong văn bản pháp lý: Trợ giúp → Thông tin giấy phép; xem [LICENSE_AUDIT](LICENSE_AUDIT.md) §3); không dùng logo TDF/LibreOffice hay ONLYOFFICE trong asset HST.
-- Giấy phép AGPL của mã nguồn **không** cấp quyền dùng thương hiệu HASON TECH.
+- About chỉ có một câu "Phần mềm độc quyền của HASON TECH, có sử dụng phần mềm nguồn mở — xem Trợ giúp → Thông tin giấy phép." (không URL nào trỏ tới kho mã/GitHub/kho extension; cách nhận mã nguồn của các thành phần MPL/LGPL/GPL nằm ở đầu tài liệu giấy phép, liên hệ lienhe@hasontech.vn), không nêu tên/bản quyền LibreOffice (tên chỉ nằm trong văn bản pháp lý: Trợ giúp → Thông tin giấy phép; xem [LICENSE_AUDIT](LICENSE_AUDIT.md) §3); không dùng logo TDF/LibreOffice hay ONLYOFFICE trong asset HST.
+- Điều khoản sử dụng phần mềm HST Office ([LICENSE](../LICENSE)) và giấy phép của các thành phần bên thứ ba **không** cấp quyền dùng thương hiệu HASON TECH.

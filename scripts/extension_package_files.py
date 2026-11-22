@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generated files of the bundled extension package, for scripts/build-extensions.py: reproducible ZIP entry times,
 the notices file, the stamped release.json and description.xml, and the HST templates with their group names."""
 import datetime
@@ -52,7 +53,8 @@ def _versions():
 def notices_text():
     prov = json.load(open(os.path.join(ROOT, "data", "vietnamese", "provenance.json"), encoding="utf-8"))
     lines = ["HST Vietnamese tools - notices", "",
-             "Code: GNU Affero General Public License v3.0 (license/LICENSE.txt). Based on LibreOffice (The Document Foundation).", "",
+             "Code: Copyright (C) 2026 HASON TECH, proprietary; HST Office Software Terms of Use (license/LICENSE.txt).",
+             "Runs on LibreOffice (The Document Foundation), whose components keep their own licences.", "",
              "Legacy encoding tables (data/encoding-maps.json) were derived from, and cross-checked against, these sources",
              "(factual character mappings; see docs/ENCODING_SOURCES.md in the source tree for the procedure):"]
     for name, src in sorted(prov["sources"].items()):
