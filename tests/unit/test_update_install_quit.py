@@ -91,6 +91,8 @@ class PendingRecord(unittest.TestCase):
                 mock.patch.object(install.launch, "spawn_and_quit", return_value=closing) as quit_:
             result = install.launch_and_quit(ctx, dict(RESULT, path="/home/u/.cache/hst-office/update/x.deb"), INFO)
         quit_.assert_called_once()
+        self.started = quit_.call_args.kwargs["on_started"]
+        self.cache = cache
         return result, install.resume.read(cache)
 
     def test_record_names_documents_and_releases_when_quitting(self):
@@ -102,6 +104,19 @@ class PendingRecord(unittest.TestCase):
         result, record = self.launch(False)
         self.assertIs(result, False)
         self.assertIsNone(record)
+
+    def test_update_lock_is_written_before_the_helper_and_names_it_once_started(self):
+        from hst_office import update_guard as guard
+        self.launch(True)
+        lock = guard.read_lock(self.cache)
+        self.assertEqual((lock["helper"], lock["office"]), (0, install.os.getpid()))
+        self.started(4242)
+        self.assertEqual(guard.read_lock(self.cache)["helper"], 4242)
+
+    def test_update_lock_is_removed_when_the_office_stays_open(self):
+        from hst_office import update_guard as guard
+        self.launch(False)
+        self.assertIsNone(guard.read_lock(self.cache))
 
 
 class DialogRegistry(unittest.TestCase):

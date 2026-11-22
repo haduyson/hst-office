@@ -154,6 +154,15 @@ class SpawnAndQuit(unittest.TestCase):
         self.assertEqual(calls, [("spawn", ["/bin/sh", "helper"], "Darwin"), ("set", "SuspendQuickstartVeto", True),
                                  ("terminate",)])
 
+    def test_started_callback_gets_the_helper_pid_before_the_quit(self):
+        calls = []
+        desktop = FakeDesktop(calls)
+        proc = mock.Mock(pid=4321)
+        with mock.patch.object(launch, "spawn", side_effect=lambda argv, system: calls.append(("spawn",)) or proc):
+            self.assertTrue(launch.spawn_and_quit(office(desktop), ["/bin/sh", "helper"], "Darwin",
+                                                  on_started=lambda pid: calls.append(("started", pid))))
+        self.assertEqual(calls, [("spawn",), ("started", 4321), ("set", "SuspendQuickstartVeto", True), ("terminate",)])
+
     def test_helper_is_stopped_when_the_quit_is_cancelled_or_fails(self):
         for options, expected in (({"saved": False}, False), ({"error": RuntimeError("disposed")}, "raised")):
             with self.subTest(options=options):

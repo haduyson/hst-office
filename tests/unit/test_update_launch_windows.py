@@ -101,6 +101,16 @@ class ElevateAndQuit(unittest.TestCase):
                                  ("terminate",)])
         self.assertFalse(marker)
 
+    def test_started_callback_gets_the_elevated_pid_before_the_quit(self):
+        calls = []
+        desktop = FakeDesktop(calls)
+        with tempfile.TemporaryDirectory() as cache:
+            self.assertTrue(launch.elevate_and_quit(office(desktop), ["powershell.exe", "x"], cache, run=lambda argv: 4321,
+                                                    on_started=lambda pid: calls.append(("started", pid))))
+            self.assertTrue(launch.elevate_and_quit(office(desktop), ["powershell.exe", "x"], cache, run=lambda argv: 0,
+                                                    on_started=lambda pid: calls.append(("started", pid))))
+        self.assertEqual([call for call in calls if call[0] == "started"], [("started", 4321)])
+
     def test_cancelled_or_failed_quit_leaves_the_marker_for_the_helper(self):
         for options, expected in (({"saved": False}, False), ({"error": RuntimeError("disposed")}, "RuntimeError")):
             with self.subTest(options=options):

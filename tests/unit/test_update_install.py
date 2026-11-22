@@ -23,6 +23,7 @@ class MacTarget(unittest.TestCase):
                 mock.patch.object(install.launch, "write_helper", return_value="/Users/u/Library/Caches/HSTOffice/update/hst-update.sh"), \
                 mock.patch.object(install.launch, "spawn") as spawn, \
                 mock.patch.object(install.resume, "write"), \
+                mock.patch.object(install, "guard"), \
                 mock.patch.object(location, "_writable", return_value=writable), \
                 mock.patch.object(install.cmd, "build_helper", wraps=install.cmd.build_helper) as build:
             install.launch_and_quit(ctx, RESULT, INFO)
@@ -68,6 +69,7 @@ class WindowsElevation(unittest.TestCase):
                 mock.patch.object(install.launch, "write_helper", return_value=r"C:\Users\u\AppData\Local\HSTOffice\update\hst-update.ps1"), \
                 mock.patch.object(install.launch, "elevate_and_quit") as elevate, \
                 mock.patch.object(install.resume, "write"), mock.patch.object(install.resume, "discard"), \
+                mock.patch.object(install, "guard"), \
                 mock.patch.object(install.launch, "spawn_and_quit") as spawn, \
                 mock.patch.dict(install.os.environ, {install.DRY_RUN_ENV: "1"}):
             install.launch_and_quit(mock.Mock(), self.RESULT, info)
