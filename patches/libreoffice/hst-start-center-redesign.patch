@@ -32,7 +32,8 @@ HST Office: the new Start Center (the window shown when no document is open), dr
   column needs) shrinks the whole Start Center by the largest share that fits, down to 60 %: measures,
   icons, the logo, spacing and type alike, the search entry's type too. Where a platform's type runs wider
   than the design's, so that a menu label or a solution name would be cut, the type alone shrinks until
-  it fits. At the design's size nothing changes. Only a window too small even at 60 % scrolls the left
+  it fits. At the design's size nothing changes. The Recent table and the Pinned card draw whole rows
+  only; the rest shows when the list is scrolled to it. Only a window too small even at 60 % scrolls the left
   column (or, below the full column's width, shows the menu as glyphs). File times are read on a worker
   thread; no thumbnails are loaded.
 - Start-up: the gradients are drawn natively (no step count, which Cairo and Skia refuse), only the logo of the
@@ -3449,10 +3450,10 @@ index 0000000..d4fbb38
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvaspaint.cxx b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
 new file mode 100644
-index 0000000..3f829a8
+index 0000000..9da6818
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
-@@ -0,0 +1,415 @@
+@@ -0,0 +1,416 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3766,7 +3767,8 @@ index 0000000..3f829a8
 +    const DateTime aNow(DateTime::SYSTEM);
 +    const tools::Long nIcon = L.px(icon::Row);
 +    const tools::Long nGlyph = L.px(icon::Action);
-+    const int nLast = std::min(nRows, L.nRecentFirst + L.RecentVisibleRows() + 1);
++    // whole rows only: a row cut by the card's bottom shows when the table is scrolled to it
++    const int nLast = std::min(nRows, L.nRecentFirst + L.RecentVisibleRows());
 +    for (int nRow = L.nRecentFirst; nRow < nLast; ++nRow)
 +    {
 +        const RecentFile& rFile = maModel.aFiles[maModel.aRecent[nRow]];
@@ -3826,7 +3828,7 @@ index 0000000..3f829a8
 +        return;
 +    }
 +    const tools::Long nIcon = L.px(icon::Row);
-+    const int nLast = std::min(nItems, L.nPinnedFirst + L.PinnedVisibleItems() + 1);
++    const int nLast = std::min(nItems, L.nPinnedFirst + L.PinnedVisibleItems()); // whole items only
 +    for (int nItem = L.nPinnedFirst; nItem < nLast; ++nItem)
 +    {
 +        const RecentFile& rFile = maModel.aFiles[maModel.aPinned[nItem]];
