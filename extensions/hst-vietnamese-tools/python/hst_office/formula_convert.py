@@ -46,18 +46,6 @@ def ole_data(ctx, embedded):
     return _stored(ctx, embedded)
 
 
-def unload(embedded):
-    """Let go of a replaced equation's program. On Windows the office starts each MathType object it shows (RUNNING,
-    one MathType window per equation where MathType is installed); the replaced object lives on in the undo step.
-    Left running, MathType keeps a window for each, and opening a formula afterwards can make MathType report "Too
-    many windows are open" in a loop (LibreOffice tdf#45892). Undo loads the object again when it is shown."""
-    try:
-        if embedded is not None and embedded.getCurrentState() != LOADED:
-            embedded.changeState(LOADED)
-    except Exception:  # noqa: BLE001 - an object that cannot be unloaded is replaced all the same
-        pass
-
-
 def import_formula(ctx, model, data):
     """Fill a new formula's model from MathType OLE data; False when the import refuses it."""
     import uno
@@ -96,7 +84,6 @@ def _replace_text_object(ctx, doc, old, data):
     new.Size = formula_size.visual_size(new.EmbeddedObject)
     formula_place.fit_room(model, new, old)
     formula_place.keep_room(new, old, model.BaseLine)  # the pages do not move
-    unload(old.EmbeddedObject)
     old.dispose()
     return True
 
@@ -139,7 +126,6 @@ def _replace_shape(ctx, doc, container, old, data):
     if old.getPropertySetInfo().hasPropertyByName("Anchor"):  # Sheets: same cell or page anchor
         new.Anchor = old.Anchor
         new.Position = old.Position
-    unload(old.EmbeddedObject)
     container.remove(old)
     return True
 

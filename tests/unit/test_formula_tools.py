@@ -125,32 +125,6 @@ class MathTypeServerTest(unittest.TestCase):
         self.assertEqual(r"C:\a b\m.exe", server.program_path(r"C:\a b\m.exe /x"))
 
 
-class FormulaUnloadTest(unittest.TestCase):
-    """A replaced MathType object lets go of MathType (state LOADED), whatever state it was in."""
-
-    class Embedded:
-        def __init__(self, state, fail=False):
-            self.state, self.fail, self.calls = state, fail, []
-
-        def getCurrentState(self):
-            return self.state
-
-        def changeState(self, state):
-            self.calls.append(state)
-            if self.fail:
-                raise RuntimeError("cannot unload")
-            self.state = state
-
-    def test_unload(self):
-        from hst_office import formula_convert
-        running, loaded, stuck = self.Embedded(1), self.Embedded(0), self.Embedded(2, fail=True)
-        for embedded in (running, loaded, stuck, None):
-            formula_convert.unload(embedded)
-        self.assertEqual(([0], 0), (running.calls, running.state))
-        self.assertEqual([], loaded.calls)
-        self.assertEqual([0], stuck.calls)  # tried; the conversion goes on
-
-
 class MathTypeRegistryViewTest(unittest.TestCase):
     """The 64-bit office also finds a 32-bit OLE server, registered in the 32-bit view of HKCR\\CLSID (WOW6432Node)."""
 
