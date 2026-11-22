@@ -214,6 +214,11 @@ class StartupPromptsJob(unohelper.Base, XServiceInfo, XJob):
 
     def execute(self, arguments):
         try:
+            from . import mac_full_screen_dialogs
+            mac_full_screen_dialogs.start(self.ctx)  # macOS: office dialogs follow a new full screen document
+        except Exception:  # noqa: BLE001 - never block start-up
+            diag_log.exception("startup_prompts")
+        try:
             from . import startup_choices
             startup_choices.migrate(self.ctx)  # keep earlier answers safe even when no question runs this start
         except Exception:  # noqa: BLE001 - never block start-up
