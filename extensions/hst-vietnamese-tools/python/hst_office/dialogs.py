@@ -9,7 +9,7 @@ import uno
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
-from . import dialog_edit_heights, dialog_on_screen, dialog_registry, screen_work_area
+from . import dialog_edit_heights, dialog_native_sizes, dialog_on_screen, dialog_registry, screen_work_area
 
 OK, CANCEL = 1, 2
 # Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
@@ -159,6 +159,7 @@ class Dialog:
         parent, parent_kind = dialog_on_screen.parent(self.ctx, parent_peer)
         self.dialog.setVisible(False)
         self.dialog.createPeer(toolkit, parent)
+        dialog_native_sizes.fit_all(self)  # before the edits: it may move rows, which changes the room below an edit
         dialog_edit_heights.fit_edits(self)
         if self.on_oversize and self._exceeds_screen(toolkit):
             self.on_oversize()
