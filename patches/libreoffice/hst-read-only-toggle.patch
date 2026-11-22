@@ -1,0 +1,517 @@
+HST Office: read-only mode both ways, and the texts around it.
+
+- sfx2 viewfrm.cxx (SfxViewFrame::ExecReload_Impl): "Edit Document" (.uno:EditDoc) on a document opened read only
+  reloaded it read only again and only unlocked the UI, so the title kept "(chỉ đọc)", Ctrl+S asked for a new name
+  and AutoSave stayed off. A switch to editing now opens a file that can be written for writing; a switch to reading
+  opens it read only (its lock is released). The reloaded document keeps the session's AutoSave choice.
+  When the switch to editing fails or is cancelled ("Hủy" for a file locked by another user), the document stays
+  read only instead of an unlocked view of a file it cannot write.
+- sfx2 sfxbasemodel.cxx (SfxBaseModel::getTitle): "(read-only)" means the document cannot be edited now; a file with
+  the read-only attribute that the user switched to editing (Save asks for another name) no longer carries it.
+- sfx2 Tệp tin > Thông tin (hstbackstage.ui, hstbackstagewindow.cxx): "Chuyển sang chỉ đọc" / "Chỉnh sửa tài liệu"
+  runs .uno:EditDoc; hidden for a document without a file.
+- sw, sc, sd vi messages.po: "Chỉ đọc" for the View tab's "Read-Only" button (.uno:ReadOnlyDoc, lit while the
+  document is read only; its hst-ribbon-label is in hst-ribbon-v3-ui.patch).
+- svx docrecovery.cxx (BrokenRecoveryDialog): asked after the user discarded the recovery, the default button is
+  "Hủy" (Enter copies nothing into Documents); after a recovery with failed documents "Lưu" stays the default.
+- fpicker VistaFilePickerImpl.cxx: the Windows Open, Save As and folder dialogs get their title, OK button and
+  file name label in the office's UI language (they followed the language of Windows). Cancel, "Save as type:" and
+  the navigation pane have no interface and stay as Windows draws them.
+- sfx2 test_hstautosave.cxx: edit mode both ways on a file opened read only, the AutoSave choice across a switch,
+  and a file with the read-only attribute.
+
+License: the upstream files remain under their original license (MPL-2.0); the HST files keep
+LicenseRef-HST-Proprietary.
+Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch.py.
+---
+--- a/fpicker/source/win32/VistaFilePickerImpl.cxx
++++ b/fpicker/source/win32/VistaFilePickerImpl.cxx
+@@ -488,10 +488,55 @@ void VistaFilePickerImpl::impl_sta_InitDialog(Request& rRequest, DWORD nOrFlags)
+ }
+ 
+ 
++namespace
++{
++enum class HstPickerKind
++{
++    Open,
++    Save,
++    Folder
++};
++
++/** HST Office: the system dialog draws its title, its OK button and the label of the name box in the language of
++    Windows, so an English Windows showed "Open", "Save As", "File name:" around a Vietnamese office. They are set
++    here in the UI language of the office; a title the caller sets later (Insert Image, Export...) replaces this one.
++    The Cancel button, the "Save as type:" label and the navigation pane have no interface and stay as Windows
++    draws them. */
++void lcl_hstSetUiLanguageTexts(const TFileDialog& iDialog, HstPickerKind eKind)
++{
++    if (!iDialog.is())
++        return;
++    OUString aTitle, aOk, aName;
++    switch (eKind)
++    {
++        case HstPickerKind::Open:
++            aTitle = FpsResId(STR_FILEDLG_OPEN);
++            aOk = aTitle;
++            aName = FpsResId(STR_HST_FILEDLG_FILE_NAME);
++            break;
++        case HstPickerKind::Save:
++            aTitle = FpsResId(STR_HST_FILEDLG_SAVE_AS);
++            aOk = FpsResId(STR_FILEDLG_SAVE);
++            aName = FpsResId(STR_HST_FILEDLG_FILE_NAME);
++            break;
++        case HstPickerKind::Folder:
++            aTitle = FpsResId(STR_SVT_FOLDERPICKER_DEFAULT_TITLE);
++            aOk = FpsResId(STR_HST_FILEDLG_SELECT_FOLDER);
++            aName = FpsResId(STR_HST_FILEDLG_FOLDER);
++            break;
++    }
++    // the texts are only the dialog's looks: a failure leaves the Windows texts
++    iDialog->SetTitle(o3tl::toW(aTitle.getStr()));
++    iDialog->SetOkButtonLabel(o3tl::toW(SOfficeToWindowsLabel(aOk).getStr()));
++    iDialog->SetFileNameLabel(o3tl::toW(SOfficeToWindowsLabel(aName).getStr()));
++}
++}
++
+ void VistaFilePickerImpl::impl_sta_CreateOpenDialog(Request& rRequest)
+ {
+     impl_sta_CreateDialog<TOpenDialogImpl>();
+     impl_sta_InitDialog(rRequest, FOS_FILEMUSTEXIST | FOS_OVERWRITEPROMPT);
++    lcl_hstSetUiLanguageTexts(impl_getBaseDialogInterface(), HstPickerKind::Open);
+ }
+ 
+ 
+@@ -499,6 +544,7 @@ void VistaFilePickerImpl::impl_sta_CreateSaveDialog(Request& rRequest)
+ {
+     impl_sta_CreateDialog<TDialogImpl<IFileSaveDialog, CLSID_FileSaveDialog>>();
+     impl_sta_InitDialog(rRequest, FOS_FILEMUSTEXIST | FOS_OVERWRITEPROMPT);
++    lcl_hstSetUiLanguageTexts(impl_getBaseDialogInterface(), HstPickerKind::Save);
+ }
+ 
+ 
+@@ -506,6 +552,7 @@ void VistaFilePickerImpl::impl_sta_CreateFolderPicker(Request& rRequest)
+ {
+     impl_sta_CreateDialog<TOpenDialogImpl>();
+     impl_sta_InitDialog(rRequest, FOS_PICKFOLDERS);
++    lcl_hstSetUiLanguageTexts(impl_getBaseDialogInterface(), HstPickerKind::Folder);
+ }
+ 
+ 
+--- a/include/fpicker/strings.hrc
++++ b/include/fpicker/strings.hrc
+@@ -38,6 +38,11 @@
+ #define STR_FILEDLG_OPEN                            NC_("STR_FILEDLG_OPEN", "Open")
+ #define STR_FILEDLG_TYPE                            NC_("STR_FILEDLG_TYPE", "File ~type")
+ #define STR_FILEDLG_SAVE                            NC_("STR_FILEDLG_SAVE", "Save")
++// HST Office: texts of the Windows file dialog that otherwise follow the language of Windows
++#define STR_HST_FILEDLG_SAVE_AS                     NC_("STR_HST_FILEDLG_SAVE_AS", "Save As")
++#define STR_HST_FILEDLG_FILE_NAME                   NC_("STR_HST_FILEDLG_FILE_NAME", "File ~name:")
++#define STR_HST_FILEDLG_SELECT_FOLDER               NC_("STR_HST_FILEDLG_SELECT_FOLDER", "~Select Folder")
++#define STR_HST_FILEDLG_FOLDER                      NC_("STR_HST_FILEDLG_FOLDER", "~Folder:")
+ 
+ #define STR_FILESAVE_AUTOEXTENSION                  NC_("STR_FILESAVE_AUTOEXTENSION", "Automatically adds the file extension to the end of the file name that corresponds to the selected file type.")
+ #define STR_FILESAVE_SAVEWITHPASSWORD               NC_("STR_FILESAVE_SAVEWITHPASSWORD", "Protects the file with a password that must be entered before a user can open the file.")
+--- a/sfx2/inc/backstage/hstbackstage.hrc
++++ b/sfx2/inc/backstage/hstbackstage.hrc
+@@ -39,6 +39,9 @@
+ #define STR_HST_BS_NO_RECENT            NC_("STR_HST_BS_NO_RECENT", "No recent files yet.")
+ #define STR_HST_BS_NO_PINNED            NC_("STR_HST_BS_NO_PINNED", "No pinned files. Right-click a recent file to pin it.")
+ #define STR_HST_BS_NOT_SAVED            NC_("STR_HST_BS_NOT_SAVED", "Not saved yet")
++// the Info page's switch of the edit mode (.uno:EditDoc), worded as the read-only info bar's button
++#define STR_HST_BS_READ_ONLY            NC_("STR_HST_BS_READ_ONLY", "Switch to Read-Only")
++#define STR_HST_BS_EDIT_DOCUMENT        NC_("STR_HST_BS_EDIT_DOCUMENT", "Edit Document")
+ #define STR_HST_BS_SIG_NONE             NC_("STR_HST_BS_SIG_NONE", "Not signed")
+ #define STR_HST_BS_SIG_OK               NC_("STR_HST_BS_SIG_OK", "Signed, the signature is valid")
+ #define STR_HST_BS_SIG_NOTVALIDATED     NC_("STR_HST_BS_SIG_NOTVALIDATED", "Signed, the certificate could not be validated")
+--- a/sfx2/qa/cppunit/test_hstautosave.cxx
++++ b/sfx2/qa/cppunit/test_hstautosave.cxx
+@@ -17,6 +17,7 @@
+ #include <com/sun/star/frame/XStatusListener.hpp>
+ #include <com/sun/star/frame/XStorable.hpp>
+ #include <com/sun/star/frame/XStorable2.hpp>
++#include <com/sun/star/frame/XTitle.hpp>
+ #include <com/sun/star/script/XLibraryContainer.hpp>
+ #include <com/sun/star/task/XInteractionAbort.hpp>
+ #include <com/sun/star/task/XInteractionHandler.hpp>
+@@ -214,6 +215,26 @@ protected:
+         comphelper::dispatchCommand(u".uno:HstAutoSave"_ustr, xModel->getCurrentController()->getFrame(), {});
+         Scheduler::ProcessEventsToIdle();
+     }
++
++    /// "Chỉnh sửa tài liệu" (.uno:EditDoc: the info bar, File > Info) or the View tab's "Chỉ đọc" (.uno:ReadOnlyDoc);
++    /// both toggle, and a switch may reload the document into the same frame
++    void switchEditMode(const OUString& rCommand = u".uno:EditDoc"_ustr)
++    {
++        uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<frame::XFrame> xFrame = xModel->getCurrentController()->getFrame();
++        comphelper::dispatchCommand(rCommand, xFrame, {});
++        Scheduler::ProcessEventsToIdle();
++        mxComponent = xFrame->getController()->getModel();
++    }
++
++    bool isReadOnly() { return uno::Reference<frame::XStorable>(mxComponent, uno::UNO_QUERY_THROW)->isReadonly(); }
++
++    /// whether the document's title carries the read-only mark (" (read-only)" in the test's UI language)
++    bool titleSaysReadOnly()
++    {
++        return uno::Reference<frame::XTitle>(mxComponent, uno::UNO_QUERY_THROW)->getTitle().indexOf("(read-only)")
++               >= 0;
++    }
+ };
+ 
+ CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testDocxOpensWithAutoSaveOnAndSavesInPlace)
+@@ -356,6 +377,71 @@ CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testToggleIsPerSessionOnly)
+     CPPUNIT_ASSERT_EQUAL(std::string("true"), wantsAutoSave());
+     CPPUNIT_ASSERT_EQUAL(std::string("on"), toggleState());
+ }
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testEditModeOpensTheFileForWriting)
++{
++    // opened read only (the "Read-only" box of the Open dialog), then "Edit Document"
++    const OUString aURL = makeWriterFile(u"edit.docx", u"MS Word 2007 XML"_ustr);
++    open(aURL, /*bReadOnly=*/true);
++    CPPUNIT_ASSERT(isReadOnly());
++    CPPUNIT_ASSERT(titleSaysReadOnly());
++    CPPUNIT_ASSERT_EQUAL(std::string("dimmed"), toggleState());
++
++    switchEditMode();
++    CPPUNIT_ASSERT(!isReadOnly());
++    CPPUNIT_ASSERT(!titleSaysReadOnly());
++    // AutoSave is back as for a document opened for editing, and Save writes the file in place
++    CPPUNIT_ASSERT_EQUAL(std::string("on"), toggleState());
++    CPPUNIT_ASSERT_EQUAL(std::string("true"), wantsAutoSave());
++    const std::string aBefore = fileBytes(aURL);
++    typeText(u" edited");
++    uno::Reference<frame::XStorable>(mxComponent, uno::UNO_QUERY_THROW)->store();
++    CPPUNIT_ASSERT(aBefore != fileBytes(aURL));
++
++    // and back to read only
++    switchEditMode();
++    CPPUNIT_ASSERT(isReadOnly());
++    CPPUNIT_ASSERT(titleSaysReadOnly());
++    CPPUNIT_ASSERT_EQUAL(std::string("dimmed"), toggleState());
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testEditModeKeepsTheAutoSaveChoice)
++{
++    open(makeWriterFile(u"choice.docx", u"MS Word 2007 XML"_ustr));
++    clickToggle(); // the user turns AutoSave off for this document
++    CPPUNIT_ASSERT_EQUAL(std::string("off"), toggleState());
++    switchEditMode(u".uno:ReadOnlyDoc"_ustr); // the View tab's "Chỉ đọc": read only
++    CPPUNIT_ASSERT(isReadOnly());
++    CPPUNIT_ASSERT(titleSaysReadOnly());
++    switchEditMode(u".uno:ReadOnlyDoc"_ustr); // editing again
++    CPPUNIT_ASSERT(!isReadOnly());
++    CPPUNIT_ASSERT_EQUAL(std::string("off"), toggleState());
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testEditModeOnAReadOnlyFile)
++{
++    // the read-only attribute of the file system (Windows Properties > Read-only, chmod a-w)
++    const OUString aURL = makeWriterFile(u"attribute.docx", u"MS Word 2007 XML"_ustr);
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None,
++                         osl::File::setAttributes(aURL, osl_File_Attribute_OwnRead | osl_File_Attribute_GrpRead
++                                                            | osl_File_Attribute_OthRead));
++    loadFromURL(aURL); // as a double click: an explicit ReadOnly=false fails on a file that cannot be written
++    if (!isReadOnly())
++    {
++        // a user who may write every file (root) does not see the attribute: nothing to check
++        osl::File::setAttributes(aURL, osl_File_Attribute_OwnRead | osl_File_Attribute_OwnWrite);
++        return;
++    }
++    CPPUNIT_ASSERT(titleSaysReadOnly());
++    switchEditMode();
++    // editable (Save asks for another name), so the title no longer says read only; AutoSave cannot write the file
++    CPPUNIT_ASSERT(!isReadOnly());
++    CPPUNIT_ASSERT(!titleSaysReadOnly());
++    CPPUNIT_ASSERT_EQUAL(std::string("dimmed"), toggleState());
++    CPPUNIT_ASSERT_EQUAL(std::string("false"), wantsAutoSave());
++    closeDocument();
++    osl::File::setAttributes(aURL, osl_File_Attribute_OwnRead | osl_File_Attribute_OwnWrite);
++}
+ }
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -43,6 +43,7 @@
+ #include <comphelper/diagnose_ex.hxx>
+ #include <sfx2/docfilt.hxx>
+ #include <sfx2/filedlghelper.hxx>
++#include <sfx2/objsh.hxx>
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/viewsh.hxx>
+@@ -336,6 +337,7 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     , m_xInfoUsbToken(m_xBuilder->weld_button(u"infousbtoken"_ustr))
+     , m_xInfoVersions(m_xBuilder->weld_button(u"infoversions"_ustr))
+     , m_xInfoUnsaved(m_xBuilder->weld_button(u"infounsaved"_ustr))
++    , m_xInfoReadOnly(m_xBuilder->weld_button(u"inforeadonly"_ustr))
+     , m_xInfoUpdate(m_xBuilder->weld_button(u"infoupdate"_ustr))
+     , m_xInfoUpdateNote(m_xBuilder->weld_label(u"infoupdatenote"_ustr))
+     , m_xSaveAsFolder(m_xBuilder->weld_label(u"saveasfolder"_ustr))
+@@ -385,7 +387,7 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     for (weld::Button* pButton :
+          { m_xNewBlank.get(), m_xNewNd30.get(), m_xNewManage.get(), m_xOpenBrowse.get(),
+            m_xInfoProperties.get(), m_xInfoSign.get(), m_xInfoUsbToken.get(), m_xInfoVersions.get(),
+-           m_xInfoUnsaved.get(), m_xSaveAsBrowse.get(), m_xPrintPrint.get(), m_xPrintPreview.get(),
++           m_xInfoUnsaved.get(), m_xInfoReadOnly.get(), m_xSaveAsBrowse.get(), m_xPrintPrint.get(), m_xPrintPreview.get(),
+            m_xPrintDuplex.get(), m_xExportPdf.get(), m_xExportPdfDirect.get(), m_xExportOther.get(),
+            m_xExportMinimize.get(), m_xExportBooklet.get(), m_xInfoUpdate.get() })
+         pButton->connect_clicked(LINK(this, BackstageWindow, ButtonClickHdl));
+@@ -868,6 +870,26 @@ void BackstageWindow::FillInfoPage()
+     m_xInfoAuthor->set_label(value(aInfo.aAuthor));
+     m_xInfoSignature->set_label(value(aInfo.aSignature));
+ 
++    // the edit mode switches only for a document with a file (SfxViewFrame::ExecReload_Impl)
++    bool bCanSwitch = false, bReadOnly = false;
++    try
++    {
++        uno::Reference<frame::XController> xController(m_xFrame.is() ? m_xFrame->getController() : nullptr);
++        if (SfxObjectShell* pShell
++            = SfxObjectShell::GetShellFromComponent(xController.is() ? xController->getModel() : nullptr))
++        {
++            bCanSwitch = pShell->HasName() && pShell->GetCreateMode() == SfxObjectCreateMode::STANDARD
++                         && !pShell->isEditDocLocked();
++            bReadOnly = pShell->IsReadOnly();
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "read-only state of the document");
++    }
++    m_xInfoReadOnly->set_visible(bCanSwitch);
++    m_xInfoReadOnly->set_label(SfxResId(bReadOnly ? STR_HST_BS_EDIT_DOCUMENT : STR_HST_BS_READ_ONLY));
++
+     util::URL aURL;
+     m_xInfoUpdate->set_visible(lcl_queryDispatch(m_xFrame, UPDATE_CHECK, aURL).is());
+     m_xInfoUpdateNote->set_visible(m_xInfoUpdate->get_visible() && lcl_updateAvailable(m_xFrame));
+@@ -1649,6 +1671,8 @@ IMPL_LINK(BackstageWindow, ButtonClickHdl, weld::Button&, rButton, void)
+         CloseAndDispatch(u"org.hst.office.vi:PreviousVersions"_ustr);
+     else if (&rButton == m_xInfoUnsaved.get()) // documents closed without saving, kept 7 days
+         CloseAndDispatch(u"org.hst.office.vi:UnsavedDocuments"_ustr);
++    else if (&rButton == m_xInfoReadOnly.get()) // both ways, as the View tab's "Chế độ sửa"
++        CloseAndDispatch(u".uno:EditDoc"_ustr);
+     else if (&rButton == m_xSaveAsBrowse.get())
+         CloseAndDispatch(u".uno:SaveAs"_ustr);
+     else if (&rButton == m_xPrintPrint.get())
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -270,6 +270,7 @@ private:
+     std::unique_ptr<weld::Button> m_xInfoUsbToken;
+     std::unique_ptr<weld::Button> m_xInfoVersions;
+     std::unique_ptr<weld::Button> m_xInfoUnsaved; ///< "Tài liệu chưa lưu" of the bundled extension
++    std::unique_ptr<weld::Button> m_xInfoReadOnly; ///< read-only mode on or off (.uno:EditDoc)
+     std::unique_ptr<weld::Button> m_xInfoUpdate; ///< "Cập nhật HST Office" of the bundled extension
+     std::unique_ptr<weld::Label> m_xInfoUpdateNote; ///< shown when the extension knows a newer release
+ 
+--- a/sfx2/source/doc/sfxbasemodel.cxx
++++ b/sfx2/source/doc/sfxbasemodel.cxx
+@@ -4132,7 +4132,10 @@ OUString SAL_CALL SfxBaseModel::getTitle()
+                 aResult += SfxResId(STR_REPAIREDDOCUMENT);
+         }
+ 
+-        if ( m_pData->m_pObjectShell->IsReadOnlyUI() || (pMedium && pMedium->IsReadOnly()) )
++        // HST Office: "(read-only)" tells that the document cannot be edited now. After "Edit Document" on a file that
++        // cannot be written (the read-only attribute of the file system), the document can be edited and saved under
++        // another name, so the title no longer says read-only.
++        if ( m_pData->m_pObjectShell->IsReadOnlyUI() || (pMedium && pMedium->HasRestrictedFonts()) )
+             aResult += SfxResId(STR_READONLY);
+         else if ( m_pData->m_pObjectShell->IsDocShared() )
+             aResult += SfxResId(STR_SHARED);
+--- a/sfx2/source/view/viewfrm.cxx
++++ b/sfx2/source/view/viewfrm.cxx
+@@ -140,6 +140,7 @@
+ #include <vcl/svapp.hxx>
+ #include <svl/cryptosign.hxx>
+ #include <tools/debug.hxx>
++#include <hstuserautosave.hxx>
+ 
+ #define ShellClass_SfxViewFrame
+ #include <sfxslots.hxx>
+@@ -736,7 +737,18 @@ void SfxViewFrame::ExecReload_Impl( SfxRequest& rReq )
+                     // let the current security settings be checked again
+                     pNewSet->Put( SfxUInt16Item( SID_MACROEXECMODE, document::MacroExecMode::USE_CONFIG ) );
+ 
+-                    if ( pSh->IsOriginallyReadOnlyMedium()
++                    // HST Office: a switch of the edit mode opens the file the way the user now works with
++                    // it. Switched to editing, a file that can be written is opened for writing, so the
++                    // title, Save and AutoSave treat it as a document opened for editing (it stayed opened
++                    // read only, and Save asked for a new name). Switched to reading, the file is opened
++                    // read only, which also releases its lock.
++                    const bool bModeSwitch
++                        = rReq.GetSlot() == SID_EDITDOC || rReq.GetSlot() == SID_READONLYDOC;
++                    if ( bModeSwitch && *oForEdit && !pSh->IsOriginallyReadOnlyMedium() )
++                        pNewSet->ClearItem( SID_DOC_READONLY );
++                    else if ( bModeSwitch && !*oForEdit )
++                        pNewSet->Put( SfxBoolItem( SID_DOC_READONLY, true ) );
++                    else if ( pSh->IsOriginallyReadOnlyMedium()
+                          || pSh->IsOriginallyLoadedReadOnlyMedium() )
+                         // edit mode is switched or reload of readonly document
+                         pNewSet->Put( SfxBoolItem( SID_DOC_READONLY, true ) );
+@@ -833,6 +845,10 @@ void SfxViewFrame::ExecReload_Impl( SfxRequest& rReq )
+ 
+                         xOldObj->DoSaveCompleted( pMedium );
+                     }
++                    // HST Office: the switch to edit mode failed or was cancelled (e.g. in the question about a
++                    // file locked by another user): the document stays read-only instead of an unlocked view
++                    if ( ( rReq.GetSlot() == SID_EDITDOC || rReq.GetSlot() == SID_READONLYDOC ) && *oForEdit )
++                        xOldObj->SetReadOnlyUI( true );
+                 }
+                 else
+                 {
+@@ -844,6 +860,8 @@ void SfxViewFrame::ExecReload_Impl( SfxRequest& rReq )
+                     else if ( rReq.GetSlot() == SID_EDITDOC || rReq.GetSlot() == SID_READONLYDOC )
+                     {
+                         xNewObj->SetReadOnlyUI(!*oForEdit);
++                        // HST Office: the reloaded document keeps the AutoSave choice of this session
++                        xNewObj->HstAutoSaveState().oOn = xOldObj->HstAutoSaveState().oOn;
+                     }
+ 
+ #if HAVE_FEATURE_MULTIUSER_ENVIRONMENT
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -1529,11 +1529,24 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <!-- documents closed unsaved, the update check and its note -->
++                  <!-- read-only mode, documents closed unsaved, the update check and its note -->
+                   <object class="GtkBox" id="inforow2">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="spacing">12</property>
++                    <child>
++                      <!-- read-only mode on or off (.uno:EditDoc); its label follows the mode, hidden without a file -->
++                      <object class="GtkButton" id="inforeadonly">
++                        <property name="label" translatable="yes" context="hstbackstage|inforeadonly">Switch to Read-Only</property>
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                      </packing>
++                    </child>
+                     <child>
+                       <!-- "Tài liệu chưa lưu" of the bundled extension: documents closed without saving, kept 7 days -->
+                       <object class="GtkButton" id="infounsaved">
+--- a/svx/source/dialog/docrecovery.cxx
++++ b/svx/source/dialog/docrecovery.cxx
+@@ -1193,6 +1193,14 @@ BrokenRecoveryDialog::BrokenRecoveryDialog(weld::Window* pParent,
+     m_xSaveDirED->set_text(sPath);
+ 
+     impl_refresh();
++
++    // HST Office: asked after the user chose to discard the recovery (before it started), Enter keeps that choice and
++    // copies nothing into the folder; after a recovery with failed documents "Save" stays the default
++    if (m_bBeforeRecovery)
++    {
++        m_xDialog->set_default_response(RET_CANCEL);
++        m_xCancelBtn->grab_focus();
++    }
+ }
+ 
+ BrokenRecoveryDialog::~BrokenRecoveryDialog()
+--- a/translations/source/vi/fpicker/messages.po
++++ b/translations/source/vi/fpicker/messages.po
+@@ -652,3 +652,27 @@ msgstr ""
+ msgctxt "STR_FILESAVE_SELECTION"
+ msgid "Exports only the selected graphic objects in %PRODUCTNAME Draw and Impress to another format. If this box is not checked, the entire document is exported."
+ msgstr ""
++
++#. hstFd01
++#: include/fpicker/strings.hrc
++msgctxt "STR_HST_FILEDLG_SAVE_AS"
++msgid "Save As"
++msgstr "Lưu thành"
++
++#. hstFd02
++#: include/fpicker/strings.hrc
++msgctxt "STR_HST_FILEDLG_FILE_NAME"
++msgid "File ~name:"
++msgstr "Tê~n tệp tin:"
++
++#. hstFd03
++#: include/fpicker/strings.hrc
++msgctxt "STR_HST_FILEDLG_SELECT_FOLDER"
++msgid "~Select Folder"
++msgstr "~Chọn thư mục"
++
++#. hstFd04
++#: include/fpicker/strings.hrc
++msgctxt "STR_HST_FILEDLG_FOLDER"
++msgid "~Folder:"
++msgstr "~Thư mục:"
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -40600,3 +40600,9 @@ msgstr ""
+ msgctxt "TabbedCalc|hstChartTypeItem"
+ msgid "Stacked Column - Line"
+ msgstr ""
++
++#. hstRO
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|btnViewHstReadOnlyDoc"
++msgid "Read-Only"
++msgstr "Chỉ đọc"
+--- a/translations/source/vi/sd/messages.po
++++ b/translations/source/vi/sd/messages.po
+@@ -11873,3 +11873,9 @@ msgstr "Các kiểu đồ họa"
+ msgctxt "templatedialog|standard"
+ msgid "_Standard"
+ msgstr "Chuẩn (_S)"
++
++#. hstRO
++#: sd/uiconfig/simpress/ui/notebookbar.ui
++msgctxt "TabbedImpress|btnViewHstReadOnlyDoc"
++msgid "Read-Only"
++msgstr "Chỉ đọc"
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -10564,6 +10564,12 @@ msgctxt "hstbackstage|infoupdate"
+ msgid "Update HST Office"
+ msgstr "Cập nhật HST Office"
+ 
++#. hstBU
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|inforeadonly"
++msgid "Switch to Read-Only"
++msgstr "Chuyển sang chỉ đọc"
++
+ #. hstBU
+ #: sfx2/uiconfig/ui/hstbackstage.ui
+ msgctxt "hstbackstage|infoupdatenote"
+@@ -10714,6 +10720,18 @@ msgctxt "STR_HST_BS_NOT_SAVED"
+ msgid "Not saved yet"
+ msgstr "Chưa lưu"
+ 
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_READ_ONLY"
++msgid "Switch to Read-Only"
++msgstr "Chuyển sang chỉ đọc"
++
++#. hstBS
++#: sfx2/inc/backstage/hstbackstage.hrc
++msgctxt "STR_HST_BS_EDIT_DOCUMENT"
++msgid "Edit Document"
++msgstr "Chỉnh sửa tài liệu"
++
+ #. hstBS
+ #: sfx2/inc/backstage/hstbackstage.hrc
+ msgctxt "STR_HST_BS_SIG_NONE"
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -35024,3 +35024,9 @@ msgstr ""
+ msgctxt "TabbedWriter|hstUxTip"
+ msgid "Draw rectangles, arrows, connectors and more."
+ msgstr ""
++
++#. hstRO
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|btnViewHstReadOnlyDoc"
++msgid "Read-Only"
++msgstr "Chỉ đọc"
