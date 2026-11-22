@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Diagnose the code signature of a released HST Office dmg and check the ad-hoc re-sign fix.
 #   signature-probe.sh <HSTOffice_*.dmg> <out-dir>
 # Writes <out-dir>/signature-probe.txt: codesign/spctl results for the shipped bundle, then for a copy

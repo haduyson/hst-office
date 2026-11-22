@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows Credential Manager (advapi32 CredWriteW/CredReadW/CredDeleteW through ctypes) for the AI API keys.
 
 One generic credential per provider, target "HSTOffice/AI/<provider>", persisted for this Windows user on this

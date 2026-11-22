@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Second run of a failing procedure with every module instrumented, to name the module and line of the error.
 
 Handlers go on existing lines (joined with ":"), so line numbers stay those of the file's own code. Procedures with their own

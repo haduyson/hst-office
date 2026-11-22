@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: the LaTeX reader of tex_to_starmath. It walks the LaTeX once, piece by piece: tokens,
 sequences up to a stop token, arguments, scripts and primes. Characters are read by tex_latex_characters, commands by
 tex_to_starmath_commands."""

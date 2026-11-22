@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Local stand-in for POST /hst-office/api/error-reports on system.hasontech.vn, enforcing the server's reading of
 the contract (plans/261106-0144-error-report/api-contract.md, "Server interpretation"). Tests and the runtime check
 send to this server only, never to the real endpoint.

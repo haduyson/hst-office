@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Local preflight for the Windows trial: catches the setup failures that otherwise cost a runner run.
 # Lints scripts/workflow, checks line endings, validates configure options and simulates
 # extract/patch/options/branding on this machine with a cygpath shim. Skips (with a notice)

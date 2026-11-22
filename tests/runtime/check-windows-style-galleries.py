@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The picture and table style galleries on the ribbon of HST Writer, Sheets and Slides on Windows.
 
 Usage (the office's own python.exe, in the tester's own session, see windows-own-session-task.ps1):

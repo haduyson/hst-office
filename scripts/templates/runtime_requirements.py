@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What each document type really requires, read from tests/fixtures/templates/requirements.json, not assumed per module.
 
 A template's requirements are its kind's settings with the template's own overrides; its writer blocks become a flat list

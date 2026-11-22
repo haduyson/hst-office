@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Checks of the Writer dialogs that follow Word: Paragraph, Font. Used by check-dialogs-writer.py."""
 from hst_dialog_uitest import click, select_entry, select_tab, state, tab_titles, type_value, visible
 

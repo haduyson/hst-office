@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """AutoFit to Contents on real documents from sw/qa: an edit is harmless, unmarked tables never move. Used by check-dialogs-writer.py."""
 import glob
 import os

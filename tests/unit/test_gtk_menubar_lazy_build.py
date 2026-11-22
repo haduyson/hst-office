@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Linux (GTK) builds the native menu bar only when it is shown (hst-gtk-menubar-lazy-build.patch).
 
 Opening a spreadsheet built the whole GTK menu bar (every submenu activated, a widget per item) although the Tabbed

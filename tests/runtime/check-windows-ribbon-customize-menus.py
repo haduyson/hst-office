@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: the entries of "Tùy chỉnh ribbon" and the history rule of the "Sử dụng gần đây" tab, in an INSTALLED (or
 administrative image of) HST Office. Companion of check-windows-ribbon-customize.py.
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The office side of update-popup-drive-windows.py: a soffice with its own profile reached over a UNO socket, its
 pop-up found and pressed through the accessibility tree, and real key presses (SendInput) into a window."""
 import ctypes

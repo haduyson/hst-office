@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Slides transitions gallery and its command .uno:HstApplyTransition (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-slides-transition-gallery.py [--instdir DIR] [--display :71] [--out DIR]

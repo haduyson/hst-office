@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Windows smoke: the Start menu shortcuts and HSTOffice.* ProgIDs of an installed HST Office carry its own
 # AppUserModelIDs (hst-windows-app-user-model-ids.patch). Usage: pwsh -NoProfile -File check-app-user-model-ids.ps1 -Install <dir>
 param([Parameter(Mandatory = $true)][string]$Install)

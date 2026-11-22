@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Texts of the Trộn thư ▾ menus, list editor, address book, address block, greeting, rules and error check;
 merged into mail_merge_texts.VI / EN (same keys in both, tests/unit/test_mail_merge_design.py)."""
 

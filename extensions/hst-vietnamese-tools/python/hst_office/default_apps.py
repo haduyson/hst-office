@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Default apps: "Mở tài liệu văn phòng bằng HST Office?" at start-up, in Tùy chọn and in the HST menu.
 
 Show-once rule (owner 2026-11-06): asked on a start after the welcome dialog; "Để sau" asks again after SNOOZE_DAYS,

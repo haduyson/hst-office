@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Admission controller of the parallel local Linux build slots (scripts/linux/build-slots.py)."""
 import importlib.util
 import os

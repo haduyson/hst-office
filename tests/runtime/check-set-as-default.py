@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Đặt làm mặc định" (Set As Default) in Writer's Paragraph and Font dialogs and in Sheets' Format Cells.
 
 Usage: check-set-as-default.py [--instdir DIR] [--work DIR] [--port N]

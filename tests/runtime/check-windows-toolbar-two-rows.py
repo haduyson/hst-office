@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Two even toolbar rows beside the window banner, on an INSTALLED HST Office (Windows).
 
 The Windows counterpart of check-toolbar-two-rows.py (cases and judgement: toolbar_two_rows_steps.py and

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ConvertEncoding command in Calc: selection (or active cell / whole sheet) -> wizard -> one undo step -> summary."""
 from . import encoding_calc
 from .encoding_calc_ranges import is_single_cell

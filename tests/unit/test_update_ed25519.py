@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure-Python Ed25519 used by the update check: RFC 8032 section 7.1 vectors and rejection cases."""
 import json
 import os

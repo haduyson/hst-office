@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of the File panel paths check-backstage.py does not press, on GTK3 in the vi UI of HST Writer.
 
 Usage (needs a running X display; never started or stopped here; runs the office as the build user):

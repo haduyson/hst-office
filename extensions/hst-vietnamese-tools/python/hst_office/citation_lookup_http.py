@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Private HTTPS helper of the reference lookup: one GET, run in its own process so DNS, TLS and the transfer
 share one wall-clock deadline that the parent enforces by killing it (citation_lookup.http_transport).
 

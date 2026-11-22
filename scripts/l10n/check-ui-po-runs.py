@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fail when a patch breaks the per-source-file runs of the Vietnamese officecfg UI.po.
 
 cfgex reads only the first contiguous run of entries of a source file. An entry of GenericCommands.xcu placed

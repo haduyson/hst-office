@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The recipient list of the Word mail-merge samples (mail_merge_word_samples.py) as Excel and as CSV save it."""
 import datetime
 import zipfile

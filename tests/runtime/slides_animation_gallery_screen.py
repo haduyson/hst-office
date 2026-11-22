@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """On-screen part of check-slides-animation-gallery.py: the gallery on the ribbon's Animation tab."""
 import importlib.util
 import os

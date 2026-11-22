@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Regression cases: code real files have and the Basic compiler refused, each also checking what it does."""
 
 COMPILE_2 = """Function ElseAfterCall()

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ND30 wizard: moving between fields and typing stay fast, and every one-line field is as high as the platform draws it.
 
 Usage: python3 tests/runtime/check-nd30-field-switch.py --display :131 [--instdir upstream/libreoffice/instdir]

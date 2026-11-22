@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Margins box of the File panel's Print page (hst-backstage-print.patch) end to end on gtk3, no keys. The office side
 runs in the office's python (UNO); the panel, a popup UITest does not reach, is read and driven through AT-SPI by
 backstage_print_atspi.py in the system python3 (pyatspi). Start inside a session bus with the atk bridge:

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Extract "Equation Native" (MTEF) streams from .doc/.docx. Read-only; never runs macros.
 import sys, os, io, zipfile, json, re, struct
 from collections import Counter

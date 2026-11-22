@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: the LaTeX commands exam papers use and the formula language words they become.
 
 Each table maps a LaTeX command name (without its backslash) to the formula text. The kinds tell the converter how

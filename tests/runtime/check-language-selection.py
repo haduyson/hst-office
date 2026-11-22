@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check UI language selection: resolution, missing translations, admin lock, restart keeping documents.
 
 Usage: python3 tests/runtime/check-language-selection.py [--instdir upstream/libreoffice/instdir]

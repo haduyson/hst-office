@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Accessibility helper of check-windows-ribbon-launchers.py. It reads and presses HST Office's ribbon and dialog
 # tabs through MSAA (oleacc, the tree that VCL's IAccessible2 bridge serves). It works on the windows of ONE office
 # process (-OfficePid) or ONE window (-Hwnd), and never sends a key or a mouse event. UI Automation sees no

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Decode reference files before parsing: UTF-8 (with or without BOM) or UTF-16 with BOM, at most 10 MB.
 
 A byte that is not valid UTF-8 is reported with its line number instead of being replaced silently (the same rule

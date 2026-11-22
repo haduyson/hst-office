@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The frame screenshot tool (tests/runtime/hst_frame_shots.py) without an office: which accessibles are which
 frame part, the shot and crop names, and cropping the parts of regions.json out of a window shot."""
 import json

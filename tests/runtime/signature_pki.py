@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Throw-away PKI on a virtual USB token for the digital-signature runtime check.
 
 Builds, under one work directory: a SoftHSM2 token (PKCS#11, like a VNPT-CA/Viettel-CA/BKAV

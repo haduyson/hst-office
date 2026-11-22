@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Before a Sheets document is written as .xlsx/.xls: warn when cells use DOCSO, DOCTIEN, BODAU, TACHHO or TACHTEN,
 which other spreadsheet programs do not know (#NAME?).
 

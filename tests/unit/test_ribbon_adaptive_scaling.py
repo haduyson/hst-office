@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Banner width per window, ladder hysteresis (hst-ribbon-adaptive-scaling.patch) and the approved scaling
 order of data/ribbon/adaptive-ladders.json (hst-ribbon-adaptive-ladders.patch)."""
 import json

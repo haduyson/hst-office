@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Synthetic Writer documents with the cursor or selection in each place an HST Writer command can start from, one
 function per place (check-nd30-insertion-point.py); the names say where."""
 import os

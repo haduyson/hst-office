@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Rich runs: punctuation collapsing while formatting, and the public/HTML forms the document layer renders."""
 import unittest
 

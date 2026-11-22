@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Paste a formatted reference line and get the fields back (offline, by pattern), for the user to check and fix in
 the item form before saving. Handles the Vietnamese thesis pattern (Tác giả (Năm), "Tên", Tạp chí, tập (số), tr.),
 APA/Harvard (Name (Year). Title.), IEEE ("Title," Journal, vol., no., pp.) and Vancouver (Title. J. 2020;1(2):3-4).

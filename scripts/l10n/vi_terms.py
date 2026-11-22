@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Glossary-wide term replacements in the Vietnamese UI translations (File is "tệp tin").
 
 The pairs come from data/l10n/vi-glossary.json "replacements" (owner decisions that apply to

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Personal and organisation names of references (CSL-JSON name objects). Pure Python (no uno).
 
 A Vietnamese author is stored family-first and is always shown in full and in that order:

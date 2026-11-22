@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The one gate every real key (and click) of the Windows harnesses passes: input goes only to a verified HST Office
 window, never to the desktop, the taskbar or a system dialog.
 

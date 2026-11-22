@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """check-banner-everywhere.py: the user interfaces of each app and what makes one banner case pass."""
 import ribbon_banner_probe as probe
 

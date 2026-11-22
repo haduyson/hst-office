@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inputs for configure --with-branding: intro/about/logo/donate images and progress.conf."""
 from PIL import Image, ImageDraw
 

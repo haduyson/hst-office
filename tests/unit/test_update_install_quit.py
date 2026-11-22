@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Cập nhật ngay" when the office does not close at once: refused quits, the extension's own open dialogs, and the
 record that lets the next start reopen the documents."""
 import unittest

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Word's formatting keys in HST Writer, part of check-msoffice-shortcuts.py (docs/SHORTCUTS-MSOFFICE.md)."""
 from msoffice_keys_helpers import dialog_check, iterate, text_field_count
 from shortcut_keys import check, wait

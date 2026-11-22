@@ -1,11 +1,12 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """POSIX shell templates for waiting, installing, recovering and relaunching.
 
 Linux script = HEADER + SETUP + variables + LINUX + one install_update (LINUX_DEB here, or LINUX_RPM / LINUX_APPIMAGE of
 update_helper_scripts_linux) + RUN."""
 
 HEADER = r'''#!/bin/sh
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
 umask 077
 log_step() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*"; }
 verify_installer() {

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Test-only module build for local Windows builds (scripts/windows/hst4-build.ps1 -Modules), run in Cygwin bash:
 #   hst4-make-targets.sh <make target>...
 # Env: HST_WORK, HST_REPO (Cygwin paths, as for trial-build.sh), MAKEFLAGS=PARALLELISM=N.

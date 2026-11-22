@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What W16 reads from and resets in Windows: the default profile of the installed office, its recovery list after a
 forced stop, and Explorer's registration of each file type."""
 import os

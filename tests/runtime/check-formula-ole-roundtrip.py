@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check: a MathType equation kept as an OLE object ("tự chuyển khi mở" off) keeps its ProgID, its class ID
 (MathType's 0002CE03-...) and its OLE data byte for byte when the document is saved as .docx, .doc or .rtf, so
 MathType can still open it.

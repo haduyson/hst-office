@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Numbers follow the Windows (and macOS) regional settings, like the leading spreadsheet application.
 
 Read from the patch itself (the new side of each hunk), so no LibreOffice tree is needed:

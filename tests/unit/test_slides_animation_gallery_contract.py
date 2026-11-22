@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Slides animations gallery: the contract of the effects, selection, undo and paging, and the gallery's
 place on the Animation tab (hst-slides-animation-gallery.patch, hst-ribbon-animation-gallery-ui.patch).
 Split from test_slides_animation_gallery.py, whose patch readers it shares; no build is needed."""

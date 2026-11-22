@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Coverage table and ranked gaps from sandbox results.
 
 Usage: summarize.py OUT.md CENSUS.json GROUP=POLICY:SCAN:RESULTS... . "Pass" means the procedure ended without an error. It says nothing about correctness:

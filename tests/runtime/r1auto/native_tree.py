@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The office's OS accessibility tree (tooling Python): role, name and screen bounds of each node.
 
 The engine's toolkit peers expose no XAccessible over UNO (census of r1-auto Windows run 42746971607: the top

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Store of "Phiên bản trước" under stress: recovery from a damaged index and the lock between office processes."""
 import json
 import multiprocessing

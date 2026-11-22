@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Update-check settings without an office: precedence of administrator locks, value clamping, the one-time
 migration of the old extension settings and macOS managed preferences (plist files in a temporary folder)."""
 import os

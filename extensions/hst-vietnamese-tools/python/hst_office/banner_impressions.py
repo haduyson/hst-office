@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Local banner display counts: per local day and banner id, in the profile banner cache (docs/BANNERS.md).
 
 The native widget reports a card once it stood one second in a visible window (one count per card change).

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Installer download of "Cập nhật ngay": the second module allowed to use the network (with update_fetch).
 
 Runs on a worker thread, only after the user clicked "Cập nhật ngay". HTTPS to the URL the signed manifest names

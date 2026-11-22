@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The GUI harness drives only its own office: when another office (e.g. the same check running in parallel with the
 same deterministic port) answers on the UNO port, hst_gui refuses it instead of sending every call there."""
 import os

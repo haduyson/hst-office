@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inside the disposable container: what the runners share: loading a private copy, the modules of a document, the wrapper module."""
 import json
 import os

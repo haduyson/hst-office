@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What an error report says about this installation, read on the main thread when the dialog opens.
 
 Always in the report (the dialog shows it read-only): HST Office version and build, OS family/version/arch,

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Part of check-vba.py: "Macro VBA" in HST Slides and HST Draw (headless).
 
 The command prepares the document as in Writer/Sheets, but a new presentation or drawing keeps its

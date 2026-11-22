@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A failed "Cập nhật ngay" leaves one local record for the next start; a user's cancel leaves none."""
 import json
 import os

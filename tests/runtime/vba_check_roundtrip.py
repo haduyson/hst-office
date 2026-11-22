@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Part of check-vba.py: macros saved to each format and read back, and the events of saved files."""
 import os
 import unicodedata

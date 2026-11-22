@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The anonymous install ID in an error report: sent in its own "installId" field only when "Gửi mã máy ẩn danh" is on
 and an ID exists, never created for a report, never in free text; shown by "Xem nội dung sẽ gửi", in the e-mail
 fallback, and accepted by a server that follows the contract (local fake server, never the real endpoint)."""

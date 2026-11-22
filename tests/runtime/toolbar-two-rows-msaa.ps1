@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # The toolbar_two_rows_probe snapshot on Windows, through MSAA (oleacc), as a screen reader reads the office: its
 # UNO window peers no longer offer XAccessible and its windows show no UI Automation tree. Prints one JSON object:
 #   {"bars": [{"box": [x, y, w, h], "items": [[x, y, w, h], ...]}], "banners": [[x, y, w, h], ...]}

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build queue test mode (`submit --test`): target validation, dedupe key, PASS/FAIL output of `wait`, baseline
 comparison, retention per job kind and the dispatcher passing/reading the test results."""
 import io

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: the Vietnamese address block and greeting line. Pure Python (no UNO).
 
 The columns are found by their headers (roles: title "Danh xưng", gender "Giới tính", name "Họ và tên", position

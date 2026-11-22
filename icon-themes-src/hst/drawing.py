@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST's original geometric construction desk. No imported icon artwork.
 
 Writes editable SVG masters; generate.py exports those masters, independently.
-Artwork emitted by this script is CC-BY-4.0; script is AGPL-3.0-only.
+Artwork emitted by this script is CC-BY-4.0; the script itself is proprietary (LicenseRef-HST-Proprietary).
 """
 from pathlib import Path
 import argparse

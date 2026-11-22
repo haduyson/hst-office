@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The ribbon as the OS accessibility tree shows it (UI Automation on Windows, AX on macOS).
 
 UNO exposes no accessibility for toolkit windows on this engine, so the ribbon checks read the OS tree, as the Linux

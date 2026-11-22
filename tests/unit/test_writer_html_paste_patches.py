@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-writer-html-paste-readable-colors.patch and hst-writer-html-paste-no-absolute-frames.patch:
 HTML pasted from a web page reads as normal text on the Writer page. Checks that the thresholds in
 the helper separate the colours of the evidence (Chromium clipboards of Facebook in dark and light

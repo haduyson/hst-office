@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Time HST Office start-up on macOS with and without the welcome dialog, for the shipped extension code and
 # for the extension code of this checkout (overlaid on a copy of the same bundle), cold and warm profile.
 #   startup-probe.sh <HSTOffice_*.dmg> <out-dir>

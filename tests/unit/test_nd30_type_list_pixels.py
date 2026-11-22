@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pixel judgement of check-nd30-type-list.py: whether the open type list is visible in a band of a screenshot.
 
 Each image is judged on its own: a band that is already covered before the pointer moves must fail, never relax the

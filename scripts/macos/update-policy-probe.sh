@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Prove the macOS update-lock templates of the user guide (help/files/hst-office-*.mobileconfig) on a released dmg.
 #   update-policy-probe.sh <HSTOffice_*.dmg> <out-dir>
 # The app is copied out of the dmg unchanged (no re-signing: the lock must not touch the bundle) and probed with

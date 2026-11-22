@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-writer-image-align-and-margin-select.patch (offline: reads the patch hunks).
 
 - A selected picture or embedded object answers Left/Center/Right from the Home tab, Ctrl+L/E/R and

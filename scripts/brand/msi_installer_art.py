@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Compose the HST Office Windows installer (MSI wizard) artwork.
 
   .venv/bin/python scripts/brand/msi_installer_art.py [--out branding/windows/installer] [--preview DIR]

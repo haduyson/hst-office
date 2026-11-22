@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """VND() and USD(): the number-words functions Vietnamese Excel users know from add-ins, with the arguments and the
 reading those add-ins document publicly (tutorials and the authors' own posts; no add-in code was used). Pure Python,
 built on number_words / number_words_en.

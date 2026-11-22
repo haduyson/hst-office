@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pop-up "HST Office X is available" after the automatic start-up check found a new release.
 
 The update check job (update_job.automatic_check) runs only when AutoCheck is on (administrator locks applied) and the

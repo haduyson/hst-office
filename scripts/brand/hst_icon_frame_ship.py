@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The files the HST icon themes ship for the frame glyphs (icon-themes-src/hst-modern/glyphs/stage-frame).
 
 Standard library only: build-hst-icon-theme.py adds frame_files(theme) to every HST archive.

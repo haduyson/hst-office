@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF signs encrypted PDFs like other signing applications, and keeps their encryption.
 
 On samples of pdf_encrypted_samples.py, each signed in the HST PDF viewer with a USB token

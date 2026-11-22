@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared checks of the citation commands (UNO): strings in the UI language, when a command cannot run here, the
 document's settings (a new citation document gets the default style of the UI language)."""
 from . import citation_refresh as refresh

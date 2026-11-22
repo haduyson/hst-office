@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Local test feed (http://127.0.0.1, throwaway key) and compact art, end to end without network.
 
 Only test-stamped packages (build-extensions.py --update-test-mode) honour HST_BANNER_TEST_URL and

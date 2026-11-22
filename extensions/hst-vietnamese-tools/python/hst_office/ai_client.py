@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Requests of the Trợ lý AI, sent only when the user presses a button that says it sends (never in the background).
 
 Network access is injected: ``transport(request, provider, key) -> (status, body bytes)``; production uses

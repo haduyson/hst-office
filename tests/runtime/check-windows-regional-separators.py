@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check on Windows that HST Office numbers follow the user's regional settings (installed build).
 
 Usage, in the user's own session with the office's Python:

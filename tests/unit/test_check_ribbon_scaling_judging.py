@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """How tests/runtime/check-ribbon-scaling.py judges a sweep, without a GUI.
 
 The sweep's measurements are faked: a blind scan (nothing found) must fail instead of passing every

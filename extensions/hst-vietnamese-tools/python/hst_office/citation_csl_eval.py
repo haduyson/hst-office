@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Evaluate the rendering elements of an imported CSL style for one item: cs:text, cs:number, cs:label, cs:names,
 cs:date, cs:group, cs:choose and the formatting attributes (prefix, suffix, delimiter, font-style, font-weight,
 vertical-align, text-case, quotes, strip-periods). Output goes into citation_runs.Out. Pure Python (no uno)."""

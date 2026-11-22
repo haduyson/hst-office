@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """No trailing "..." / "…" on Vietnamese UI labels (owner rule 2026-11-06).
 
 In the Vietnamese UI a label does not end with an ellipsis just to say that a dialog follows:

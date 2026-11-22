@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """W16: open .xlsx/.ods, .docx/.odt, .pptx/.odp the ways a person does in Explorer and time the document window.
 
 Routes: double click, right click ▸ Open, right click ▸ Open with ▸ HST <app>, and ShellExecuteEx with the verb names

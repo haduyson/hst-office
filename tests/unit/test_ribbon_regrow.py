@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon regrow pass (vcl/inc/HstRibbonRegrow.hxx from hst-ribbon-ux-engine.patch).
 
 select() (HstRibbonScaling.hxx) stops at the first ladder step that fits; fitByPriority() lays the row

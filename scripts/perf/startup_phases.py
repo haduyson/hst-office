@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up phases of one office launch, from window samples and the Python trace (pure; used by startup-timing.py).
 
 A sample is (t, [(pid, width, height, title, kind)]) with t in seconds since launch and kind one of "splash",

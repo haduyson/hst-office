@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Signed PDFs for the signature-reason check, signed by pyHanko with a throw-away key: valid,
 encrypted, three signatures in a row, then copies changed the way real files get broken (an update
 after signing, rewrites, a truncated copy, a changed byte, a damaged CMS). Needs

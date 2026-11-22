@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Linux desktop keyring (Secret Service through libsecret-1, ctypes) for the AI API keys.
 
 GNOME Keyring, KWallet 6 and KeePassXC all serve the Secret Service: the key is kept in the user's default

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What generate-draw-ribbon.py builds: the files it changes, Draw's tabs, the groups and commands it keeps, drops
 or adds, the HST look of a group, and the new strings."""
 import os

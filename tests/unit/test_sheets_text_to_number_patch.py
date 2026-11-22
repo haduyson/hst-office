@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Sheets "Chuyển thành số": the patches wire the triangle, the warning button, the command and the option.
 
 Reads hst-sheets-text-to-number.patch (core) and hst-sheets-text-to-number-files.patch (.xlsx/.ods), the series and

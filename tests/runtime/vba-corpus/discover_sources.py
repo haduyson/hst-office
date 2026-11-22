@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """List real macro-capable Office files on public GitHub repositories, pinned to a commit. Downloads nothing.
 
 Usage: discover_sources.py OUT.json. Needs `gh` logged in. Records repo, commit, path, size and the licence GitHub

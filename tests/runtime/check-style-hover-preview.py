@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Gate G1: the Styles gallery hover preview never changes the document's state (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-style-hover-preview.py [--instdir DIR] [--display :97] [--out DIR]

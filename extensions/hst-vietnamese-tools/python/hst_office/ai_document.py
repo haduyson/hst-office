@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What the Trợ lý AI reads from and writes to the document. Reading happens only to prefill the dialog (the user
 sees and can edit the text before anything is sent); writing happens only when the user presses an insert button,
 inside one undo step named "Trợ lý AI"."""

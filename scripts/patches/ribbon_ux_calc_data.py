@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Data of generate-ribbon-ux-calc.py: the ribbon-only labels, the tooltips' second lines, the group captions,
 the drop-down menus and the new buttons of the HST Sheets ribbon (Tabbed notebookbar.ui of Calc).
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """High-rate screen sampling for the tab switch flash checks (Windows, pure ctypes).
 
 Instead of downscaling the whole screen (about 30 grabs/s), a grab copies a grid of small patches of one screen

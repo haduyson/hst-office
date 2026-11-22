@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Locate and load the shared JSON data (ND30 rules, encoding maps, number formats, locales).
 
 Inside the packaged extension the data lives in <ext>/data and <ext>/locales; in the source tree it is

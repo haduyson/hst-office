@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-own-policy-paths.patch: HST Office reads Windows policies from its own key; from the old upstream key only the
 update-lock subtree of beta.4 and earlier still applies. The templates, the guide and the Windows smoke test follow
 (the website copy of the guide is synced at release time by website/office.hasontech.vn/scripts/sync-help.py).

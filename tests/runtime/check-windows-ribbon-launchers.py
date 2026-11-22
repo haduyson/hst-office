@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: clicking each ribbon group launcher (↘) of an INSTALLED HST Office opens its group's dialog on the group's
 tab (data/ribbon/launcher-targets.json; the Linux counterpart is check-ribbon-launchers.py).
 

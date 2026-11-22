@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: the primary display's resolution, for running the ribbon checks at several screen sizes.
 
   python windows_display_mode.py list            the modes the display offers (width x height, 32 bit)

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: the fault note of a crash the office's own handler ends silently (patch hst-windows-silent-crash-note).
 
 A crash on the office's main thread before its main loop runs (start-up), at shutdown or under --norestore ends in the

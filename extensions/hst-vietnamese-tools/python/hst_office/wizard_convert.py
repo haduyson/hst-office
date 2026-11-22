@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """TCVN3/VNI -> Unicode dialog: explicit encoding choice, suggestion text, original/result preview."""
 from . import encoding, encoding_detect, encoding_writer
 from .dialogs import Dialog

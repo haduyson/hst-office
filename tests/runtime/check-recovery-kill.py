@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Recovery after a crash on Linux: kill -9 and a real crash signal (SIGSEGV, the emergency save).
 
 Usage: python3 tests/runtime/check-recovery-kill.py --instdir <instdir> [--out tests/output/recovery-kill]

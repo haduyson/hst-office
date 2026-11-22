@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Cập nhật ngay" without an office: where the macOS helper installs, and that an unexpected error is reported."""
 import unittest
 from unittest import mock

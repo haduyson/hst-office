@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The new-version pop-up on a Windows test PC, run with the office's own Python in the console user's session.
 
 Usage (check-update-popup-windows.ps1 prepares the folder):

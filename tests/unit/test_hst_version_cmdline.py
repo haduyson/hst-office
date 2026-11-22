@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """`soffice --version` prints "HST Office <release>" only: a build from the release tarball has no git commit,
 so the installer's buildid is the upstream fallback "680(Build:1)" and the version line must not show it."""
 import unittest

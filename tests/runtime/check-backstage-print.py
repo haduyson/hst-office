@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Print page of the File panel (hst-backstage-print.patch) end to end in a visible office (Linux X display, gen
 plugin; Windows: the test user's own session). Widgets are driven by id through the UITest service, no keys.
 Usage: <office python> check-backstage-print.py --soffice PATH --out DIR [--shot CMD] [--no-pdf-printer | --cups-pdf DIR]

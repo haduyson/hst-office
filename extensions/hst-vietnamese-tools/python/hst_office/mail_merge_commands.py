@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: the recipient list, field and preview commands of the Gửi thư tab (org.hst.office.mailmerge:<Command>,
 mail_merge_handler.py; finish: mail_merge_finish_commands.py, design: mail_merge_design_commands.py). Every command
 gets a mail_merge_context.Context; errors are told in a message, never raised into the office."""

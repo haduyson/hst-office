@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inside the disposable container: do the UserForms of real files open, and do their handlers run?
 
 argv: jobs.json with {"file", "skip": [...]}. For up to 4 forms of a file: Load and Show (the watcher records the dialog and closes it), then the

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Refresh every HST citation and the bibliography of a document (UNO orchestration).
 
 Runs after each HST citation command, from "Cập nhật trích dẫn", and before a save (citation_save_job). It never

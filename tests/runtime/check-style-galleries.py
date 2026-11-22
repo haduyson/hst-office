@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The picture and table style galleries' handler vnd.hst.styles: in Writer, Sheets and Slides (headless).
 
 Usage: python3 tests/runtime/check-style-galleries.py --soffice PATH/program/soffice [--out DIR] [--port 7471]

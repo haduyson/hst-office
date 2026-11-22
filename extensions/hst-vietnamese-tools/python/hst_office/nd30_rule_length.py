@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Length of the rule under the agency name, as chosen in the ND30 wizard (pure logic, no `uno`).
 
 ND30 Phụ lục I, II.2b: a solid rule, centred under the agency name, 1/3 to 1/2 as long as the line of text. The wizard

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fixtures and helpers of check-style-galleries.py: a picture and a table in Writer, Sheets and Slides,
 the vnd.hst.styles: dispatch, undo counting and OOXML part reading."""
 import os

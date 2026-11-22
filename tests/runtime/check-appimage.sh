@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # HST Office AppImage on a clean distribution, in an auto-removed container, as a normal user:
 #   - start without FUSE at all (expected: the runtime's hint) and with --appimage-extract-and-run;
 #   - start with /dev/fuse and fuse3 only (no libfuse2 installed): the static type-2 runtime mounts by itself;

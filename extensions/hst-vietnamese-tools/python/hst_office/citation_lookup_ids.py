@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Identifiers the user types into "Tra cứu": DOI, PubMed ID, arXiv ID or ISBN (checked before anything is sent).
 Pure Python (no uno, no network)."""
 import re

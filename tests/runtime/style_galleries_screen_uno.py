@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO side of check-style-galleries-screen.py, run with the office's own Python (the packaged office brings
 its Python, which has no AT-SPI). One command per call against the running office's socket; prints JSON.
 

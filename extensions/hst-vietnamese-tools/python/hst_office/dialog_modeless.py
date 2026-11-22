@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Show a dialogs.Dialog without a modal loop (the update pop-up): the other windows keep working."""
 import unohelper
 from com.sun.star.awt import XTopWindowListener

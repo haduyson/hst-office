@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Offline ribbon parity check: data/ribbon/office-parity.json against the patched notebookbar.ui files.
 
 Usage:

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 <#
 Run hst4-setup.ps1 / hst4-build.ps1 detached from the SSH session as a one-shot scheduled task
 "hst-build-<Name>" under the current (admin) account: S4U logon (no stored password, no desktop),

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Values of template variables: names (with substitution and labels), dates, pages, editions, DOI, publisher."""
 from . import citation_render_dates as render_dates
 from . import citation_render_fields as fields

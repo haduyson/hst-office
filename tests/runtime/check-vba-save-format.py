@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GUI check: a document with macros is not saved into a format that loses them without a warning.
 
 Usage: python3 tests/runtime/check-vba-save-format.py [--instdir upstream/libreoffice/instdir]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Monospace text preview of an ND30 layout (pure logic, no `uno`), shown live in the wizard.
 
 It mirrors what nd30_writer puts on the page: the two-column header (agency | national title and motto) and the

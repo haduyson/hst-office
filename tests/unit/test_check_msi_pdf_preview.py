@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """scripts/check-msi-pdf-preview.py: the MSI registers the HST PDF preview/thumbnail handlers without taking
 another PDF program's slot."""
 import copy

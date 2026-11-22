@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Each Writer button of Trang đầu and Chèn shows its label (or only its icon) as the reference table says, on gtk3.
 
 Usage: python3 tests/runtime/check-ribbon-word-labels.py --instdir DIR [--display :281] [--out DIR]

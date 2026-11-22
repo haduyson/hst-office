@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Quản lý tài liệu tham khảo": the user's library (<profile>/hst-citations/library.json, never sent anywhere).
 Search (accents and case ignored), sort by author, year, title or newest, add and edit sources in the source form
 (with online lookup), delete, import files, export, and copy the sources this document cites into the library."""

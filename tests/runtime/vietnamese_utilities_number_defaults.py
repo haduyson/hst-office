@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Defaults steps of check-vietnamese-utilities.py: DOCSO()/DOCTIEN() with an argument left out follow the file's own
 default after recalculation (never the user's default), through .xlsx and .ods; Tùy chọn ▸ HST Office ▸ Đọc số và
 tiền loads and saves the user default."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon group launchers (↘) keep the targets of data/ribbon/launcher-targets.json through the patch series.
 
 The command of every btnHstLaunch* ToolButton is followed through patches/libreoffice/series in order (the last

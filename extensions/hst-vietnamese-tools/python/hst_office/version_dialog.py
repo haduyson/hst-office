@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dialog "Phiên bản trước" (command org.hst.office.vi:PreviousVersions: Tệp tin menu of HST Writer, HST Sheets and
 HST Slides): the stored versions of the open document's file, newest first, with "Mở xem" (a read-only copy) and
 "Khôi phục". Khôi phục asks inside the dialog, then, after the dialog has closed, keeps the current file as a version,

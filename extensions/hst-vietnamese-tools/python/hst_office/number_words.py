@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Numbers read as Vietnamese (or English) words: DOCSO, DOCTIEN, the "Đọc số thành chữ" dialog and the Writer command.
 
 Pure Python (no uno). Defaults follow the owner's decision: "nghìn" and "lẻ" (105 = "một trăm lẻ năm"), "bốn" after

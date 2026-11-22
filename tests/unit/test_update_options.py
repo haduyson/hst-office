@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Cập nhật: the "Gửi mã máy ẩn danh khi kiểm tra cập nhật và báo lỗi" box, its registration, default,
 administrator lock, and that unticking it stops the ID."""
 import os

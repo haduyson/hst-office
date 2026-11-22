@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Safe CSV decoding and parsing for the Calc import helper (pure logic, no `uno`).
 
 Limits and the text-by-default policy come from data/vietnamese/number-formats.json ("csv"). Nothing is

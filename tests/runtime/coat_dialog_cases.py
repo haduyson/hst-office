@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The pilot dialogs of the HST coat screenshots, shared by the Linux and Windows shot scripts."""
 
 # name: (document factory, dispatch command)

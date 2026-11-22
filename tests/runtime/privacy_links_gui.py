@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """X11 helpers of check-privacy-links.py: a recording stand-in for the system browser, window lookup, keys and mouse
 clicks (xdotool), and finding a text link on screen by its colour (ImageMagick's import + Pillow)."""
 import json

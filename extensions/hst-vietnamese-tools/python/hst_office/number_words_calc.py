@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The cells of "Đọc số thành chữ" in Sheets: the source cell or column and the target column it writes to, read and
 read a block at a time (getDataArray/getFormulaArray) and written cell by cell. Planning is pure
 (number_words_range.py); this module only talks to the sheet."""

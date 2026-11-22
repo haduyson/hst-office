@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Is a translucent watermark still faint? Pixel measurement against a reference render.
 
 The reference is poppler (pdftoppm) on the original file. Watermark pixels are the light, neutral

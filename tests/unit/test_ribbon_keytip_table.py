@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Key letters of the ribbon (sfx2 HstKeyTipTable.hxx from hst-ribbon-keytips.patch).
 
 No tip may be a prefix of another on one level, a taken or missing letter gets a free one, and Y and Z stay reserved for

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Insert ▸ Date and Time (.uno:InsertDateAndTime) of the Slides ribbon has an icon in every theme HST ships: the
 HST themes alias it to their date field glyph (integration-map.json), and the Slides ribbon patch links it to the
 date field icon in Colibre and Colibre dark, which had none (so hst_classic, built on Colibre, gets it too)."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Cổ điển style: HST glyphs only for requests Colibre does not resolve, never shadowing Colibre."""
 import importlib.util
 import io

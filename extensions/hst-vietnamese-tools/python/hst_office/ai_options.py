@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Trợ lý AI (OptionsDialog.xcu, dialogs/AI.xdl).
 
 Settings (on/off, provider, model) are saved on OK; Cancel keeps the old ones. The key box never shows a stored key:

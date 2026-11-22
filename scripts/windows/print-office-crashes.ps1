@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Windows smoke diagnostics: print every soffice.bin crash of this runner session, the Application log entry
 # (faulting module, offset, exception code) and, when the Windows SDK debugger is present, the crashing thread's stack
 # from each minidump that Windows Error Reporting (LocalDumps key set by the workflow) or ProcDump

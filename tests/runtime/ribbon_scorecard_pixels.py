@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pixel analysis of the ribbon scorecard (painting and gallery probes). Pure functions on PIL images and boxes.
 
 A box is (x, y, width, height) in image coordinates. Thresholds are chosen so that anti-aliasing noise (a few levels)

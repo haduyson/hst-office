@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure logic of the update check (no uno, no network): versions, manifest, channels, URLs, throttle.
 
 Manifests, each with a detached Ed25519 signature: latest-3.json (schema 3, fetched first), latest-2.json (schema 2,
@@ -14,7 +15,6 @@ offered the newest of beta and stable; stable installs only stable.
 import json
 import re
 import urllib.parse
-
 from .update_installer import parse_installers
 
 MANIFEST_URL = "https://office.hasontech.vn/update/latest-3.json"

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Chèn lại trích dẫn" list: the sources the document cites, by their number in the bibliography
 ("[3] Nguyễn Văn An (2010), …"); typing a number or words filters the list, Enter inserts the selected sources with
 an optional page. The quick way, typing "[3" then Alt+Shift+I, does not open it (citation_cite_actions).

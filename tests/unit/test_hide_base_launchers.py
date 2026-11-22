@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-hide-base-launchers.patch: HST Base is offered nowhere (Windows Start menu, File ▸ New and the menus built from
 it, Linux app menus and the HST Office launcher's actions) while .odb files still open with it.
 

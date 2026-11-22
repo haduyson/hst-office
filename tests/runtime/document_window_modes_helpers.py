@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of the window mode checks (check-document-window-modes*.py): open documents from outside, PDF
 fixtures, and a snapshot of every open document that proves nothing was reloaded or lost."""
 import os

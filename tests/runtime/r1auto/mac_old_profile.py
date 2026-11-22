@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS owner scenario (windows-smoke's ui-parity-old-profile): the PUBLISHED beta.5 dmg installed and started once
 with the user's default profile, removed (the profile stays), then the build under test installed over that profile.
 Its start-up questions must appear (M2 semantics: the welcome may take the first start, the default-apps question

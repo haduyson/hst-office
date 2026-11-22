@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Writer shows both rulers by default: new document and opened .docx, the View commands toggle them, the choice
 persists, an explicit old choice wins, and the vertical ruler leaves the ribbon and its banner slot alone.
 

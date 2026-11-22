@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The "sửa tên Việt" step of every import and online lookup: suggestions the user confirms in a preview table.
 
 External data often gets Vietnamese references wrong: Crossref writes {"family": "Hòa", "given": "Quản Minh"},

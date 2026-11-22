@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Manifest and URL rules of the update check (split from test_update_check.py, whose helpers it reuses)."""
 import json
 import unittest

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"In hai mặt" on the real build, measured in the exported PDF: Party documents mirror their margins on the back
 (05-HD/VPTW IV.4.2: front left 30 / right 15 mm, back left 15 / right 30 mm), ND30 documents keep them (Phụ lục I,
 Phần I, Mục I, khoản 3: no back-page rule); the HST menu toggle switches an existing document back.

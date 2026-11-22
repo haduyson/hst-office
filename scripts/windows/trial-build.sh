@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # HST Office Windows trial build, run inside Cygwin bash (see .github/workflows/desktop-windows.yml).
 #   trial-build.sh --extract | --tools | --options | --patch | --configure | --build
 # Env: HST_WORK (Cygwin path, default /cygdrive/d/hst), HST_REPO (checkout), HST_BUILD_DEADLINE

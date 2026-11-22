@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Small helper to build native modal UNO dialogs in code (no XDL files, no web views).
 
 Controls are added in tab order; OK/Cancel use the standard push-button types so Enter/Esc work, every control

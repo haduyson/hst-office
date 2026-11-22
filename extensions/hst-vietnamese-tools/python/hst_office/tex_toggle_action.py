@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức (org.hst.office.vi:TexToggle; Chèn ▸ Công thức, Alt+\\): the LaTeX of the selection or of
 the whole document becomes formulas, a selected formula becomes LaTeX again (tex_toggle_writer). The command then
 says on the status bar, never in a dialog (tex_toggle_notice), how many spans were converted and how many stayed

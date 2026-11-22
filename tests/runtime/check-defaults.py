@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check HST default configuration on a real HST Office build (fresh profile).
 
 Usage: python3 tests/runtime/check-defaults.py [--instdir upstream/libreoffice/instdir] [--out tests/output/defaults]

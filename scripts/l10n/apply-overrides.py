@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Apply l10n/vi-overrides.jsonl to the Vietnamese .po files of the LibreOffice tree.
 
 Each row {file, msgctxt, msgid, msgstr, reason} replaces the msgstr of exactly that

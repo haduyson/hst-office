@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dialog, save-warning, Writer and menu steps of check-vietnamese-utilities.py (real dispatches, keys, screenshots)."""
 import os
 import time

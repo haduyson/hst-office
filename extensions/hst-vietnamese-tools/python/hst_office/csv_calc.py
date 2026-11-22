@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Write parsed CSV rows into a Calc sheet as ONE undo step (uno objects are passed in).
 
 Text mode (default) sets the Text number format on the destination first, so values like 00123, =1+1 or +84...

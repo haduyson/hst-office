@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The office's proxy setting for HST's HTTPS requests (update check, banner feed).
 
 A module of its own so the banner start-up job, which runs as the first window appears, reads the setting without

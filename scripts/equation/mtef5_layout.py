@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Lines, piles and matrices; operand fix-ups StarMath needs."""
 from mtef5_tables import *  # noqa: F401,F403  (shared tables)
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Quick Search of the wizard's document-type list on the real HST build: typed keys, live filter, Enter and Esc.
 
 Usage: python3 tests/runtime/check-nd30-search.py --display :131 [--instdir upstream/libreoffice/instdir] [--out DIR] [--port 2192]

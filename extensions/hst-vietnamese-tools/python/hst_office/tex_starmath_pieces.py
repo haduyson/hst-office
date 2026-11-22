@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: the pieces LaTeX is read into and how they join as formula text (no UNO).
 
 A piece is a kind and its formula text. join() writes a sequence of pieces with the rules the formula language needs

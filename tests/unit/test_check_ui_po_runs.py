@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """check-ui-po-runs.py judges an added UI.po entry by its neighbour: a known comment hash, the source marker or the
 neighbour's "#: <file>.xcu" reference line (HST hashes repeat across files, so they are not trusted)."""
 import importlib.util

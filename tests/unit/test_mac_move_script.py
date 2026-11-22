@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The start-up move script (mac_move_script) run with stubbed macOS tools: verified copy, administrator path, reopen."""
 import hashlib
 import os

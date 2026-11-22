@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư without UNO: CSV values (Vietnamese numbers, dd/mm/yyyy dates, leading zeros kept), sheet cells to a
 recipient table, the stored document settings (damaged JSON ignored), the handler's status for the ribbon (record
 label, greyed buttons) and the vi/en text tables."""

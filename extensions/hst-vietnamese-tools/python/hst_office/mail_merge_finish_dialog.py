@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ "Hoàn tất và trộn" (mockup 04): what to do (edit, print, one PDF / DOCX per person, e-mail), which
 recipients (all checked, the one shown, a range), the file-name pattern with its column picker and a live example,
 the folder, and the e-mail column and subject. Returns a mail_merge_output.Request or None."""

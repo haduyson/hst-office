@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The banner fits snugly: its slot is exactly its artwork (include/vcl/HstBannerGeometry.hxx as the patch series
 leaves it, compiled with a small driver; skipped when no C++ compiler or patch tool is available).
 

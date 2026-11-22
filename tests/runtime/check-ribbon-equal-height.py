@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One ribbon height and one caption row in HST Writer, Sheets, Slides and Draw (gap list G06,
 hst-ribbon-equal-height.patch), on gtk3 under Xvfb.
 

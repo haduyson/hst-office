@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Text selection in HST PDF, shared by the Linux and the Windows checks: a synthetic text page and the screen measure.
 
 sample() is a one-page PDF made by this code alone (base-14 Helvetica, black text lines from the top of the page to

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure rules of the ribbon mockup check: ladder levels, vector comparison, monotonic growth and the v3 banner rule.
 
 No display or AT-SPI here, so the unit tests run without a desktop (tests/unit/test_ribbon_mockup_expected.py).

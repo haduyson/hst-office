@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Office side of the macOS app launchers in /Applications (logic: hst_office/mac_app_launchers.py).
 
 sync_at_startup() copies or refreshes them at every start of an installed HST Office (startup_prompts, before the

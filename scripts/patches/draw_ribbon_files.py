@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The other files of hst-ribbon-draw.patch (generate-draw-ribbon.py): sdraw.suppr, ToolbarMode.xcu, the Vietnamese
 strings in sd/messages.po, and the unified diff of each file."""
 import difflib

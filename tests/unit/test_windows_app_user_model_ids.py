@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-windows-app-user-model-ids.patch: HST Office's own Windows AppUserModelIDs (taskbar groups, pinned shortcuts,
 jump lists), so no TheDocumentFoundation.LibreOffice.<Module> id is left in the patched tree.
 

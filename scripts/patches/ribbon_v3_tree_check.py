@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the four notebookbar.ui files of a patched tree against the owner-locked v3 ribbon (data/ribbon/ribbon-v3.json).
 
 The v3 layout code (vcl HstRibbonV3Layout, hst-ribbon-v3-layout.patch) lays a group out only when its GtkGrid has a

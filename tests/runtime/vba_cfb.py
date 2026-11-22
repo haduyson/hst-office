@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Minimal readers for MS-CFB compound files and MS-OVBA compressed containers (standard library only)."""
 import struct
 

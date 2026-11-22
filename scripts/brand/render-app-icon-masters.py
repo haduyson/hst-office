@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Render the 1024 px PNG masters of the HST application icons from their SVG masters.
 
   python3 scripts/brand/render-app-icon-masters.py [--check]

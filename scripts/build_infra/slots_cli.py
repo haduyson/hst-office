@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Admission controller for the parallel local Linux build slots (scripts/linux/local-build.sh --slot N).
 
 All slots share one server (32 cores, 47 GB RAM shared with other services), so every slot asks this

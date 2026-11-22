@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Print page of the File panel opened again and again (hst-backstage-print.patch) on gtk3, no keys. Each opening
 must show one print panel: on gtk3 a panel left behind by the previous job stays in the page, so the settings and
 preview were stacked once more per opening. Run like check-backstage-print-margins.py:

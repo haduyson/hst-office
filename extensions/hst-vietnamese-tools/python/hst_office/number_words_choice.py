@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What the "Đọc số thành chữ" dialog writes: the words, the DOCSO/DOCTIEN formula, the error text. Pure Python."""
 from . import number_words
 from . import number_words_defaults as defaults

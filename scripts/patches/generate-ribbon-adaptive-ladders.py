@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Write hst-ribbon-adaptive-ladders.patch: the step orders of data/ribbon/adaptive-ladders.json in the ladders.
 
 Usage: scripts/patches/generate-ribbon-adaptive-ladders.py --tree DIR [--check]

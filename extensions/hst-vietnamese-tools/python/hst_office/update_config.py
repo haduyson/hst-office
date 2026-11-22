@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Settings of the update check: the core schema, the old extension schema and administrator locks.
 
 The settings live in the core configuration /org.openoffice.Office.HSTUpdate (officecfg HSTUpdate.xcs, added by

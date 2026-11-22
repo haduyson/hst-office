@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Plain-text fixtures of scripts/perf/large_file_fixtures.py: Vietnamese text opened in Writer.
 
 Shapes that stress the text import differently: many short lines (one paragraph each), long lines, a few huge lines

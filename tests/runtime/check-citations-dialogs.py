@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Open every citation dialog in a real HST Writer window, keep a screenshot, cancel it, and check the document did
 not change; then type "[1, tr. 5" and press Alt+Shift+I in the document window.
 

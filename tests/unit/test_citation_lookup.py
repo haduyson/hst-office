@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Online lookup, tested offline with recorded answers: identifiers, requests (no contact address unless an
 administrator sets one), conversion of every service, fallbacks, rate limits, the switch-off and the HTTPS helper's URL rules."""
 import os

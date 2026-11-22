@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # PNG of every visible top-level window of the given processes through PrintWindow (works in a disconnected session,
 # where screen copies fail), plus <Tag>.txt with each window's class, title and titled child windows.
 # Usage: windows-office-window-shots.ps1 -Out DIR -Tag NAME [-Procs soffice.bin]

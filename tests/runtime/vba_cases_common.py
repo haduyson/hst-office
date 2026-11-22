@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared helpers of the VBA compatibility cases (vba_cases.py: Excel idioms, vba_cases_writer.py: Word idioms).
 
 Each case is one VBA function body run in its own fresh document, in a module that starts with

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check direction A on a real GUI build: white panel with a neutral native frame.
 
 Usage: python3 tests/runtime/check-ribbon-panel.py [--instdir upstream/libreoffice/instdir]

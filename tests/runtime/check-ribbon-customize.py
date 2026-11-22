@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon customization and the "Sử dụng gần đây" (recently used) tab on a real GUI (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-customize.py --instdir DIR --work DIR [--display :247] [--shots DIR]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """VND() and USD(): every argument form of the two Vietnamese Excel add-ins, and the outputs their public tutorials
 and authors show (sources in the comments; where the two add-ins differ, HST reads as the add-in workbook does)."""
 import unittest

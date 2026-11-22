@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Paragraph styles of the bibliography (UNO).
 
 The bibliography result is pasted as HTML, which makes every paragraph "Text body"; after each write the

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-gtk3-boxes-fit-rows.patch: on gtk3 the native boxes of a ribbon item fit the ribbon's 24 px rows.
 
 GTK draws a combo box, entry or spin button at its theme height (Adwaita 31-34 px), so a 24 px ribbon row cut their

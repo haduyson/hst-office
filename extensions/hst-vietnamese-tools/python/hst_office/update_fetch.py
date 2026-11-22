@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Network side of the update check: the only module of the extension allowed to use the network.
 
 One GET for the manifest and one for its detached signature (legacy fallback on fetch errors only), 5 s timeout,

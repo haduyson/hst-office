@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime Calc checks: vi-VN number formats leave values/formulas unchanged; CSV import is literal, single-undo, safe."""
 import json
 import time

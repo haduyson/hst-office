@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: the ways a document ends while its File panel shows the Print page with a print job
 (hst-backstage-print-job-ends-before-close.patch, hst-backstage-panel-keeps-focus.patch). One visible office per case
 and application (Writer, Sheets), driven through UITest, run with the office's Python in the test user's session:

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Create, edit, save, reopen and export documents in all three HST modules.
 
 Usage: python3 tests/runtime/check-office-roundtrip.py [--instdir upstream/libreoffice/instdir] [--out tests/output/roundtrip]

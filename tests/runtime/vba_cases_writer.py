@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Word idioms of the VBA compatibility matrix (tests/runtime/check-vba.py), run in HST Writer on WRITER_TEXT.
 
 Same rules as vba_cases.py. As in Word, a paragraph's Range ends after its mark: Range.Text ends with vbCr, Words

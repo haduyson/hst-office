@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Map docx OLE equations to their WMF/EMF preview and pick a stratified sample.
 import sys, os, json, zipfile, re, random, collections
 res = [json.loads(l) for l in open(sys.argv[1])]

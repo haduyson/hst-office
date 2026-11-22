@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """After a spreadsheet is loaded, its VND()/USD() calls through a Vietnamese number-words add-in become calls of the
 HST functions, so the cells calculate instead of showing #NAME? or an external-reference error (excel_addin_calls.py
 says which calls and how). Any file format: .xlsx, .xls and an .ods that kept such a call all show it the same way.

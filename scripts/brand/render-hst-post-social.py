@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Render standalone HST Post social assets offline; --check compares every output byte for byte.
 
 Requires Pillow==10.4.0 and playwright==1.64.1 with its Chromium, as used by render-banners.py.

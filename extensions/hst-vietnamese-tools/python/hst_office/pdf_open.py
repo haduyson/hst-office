@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF started on its own (Windows shortcut, Linux launcher): a file dialog limited to PDF files.
 
 Windows runs `soffice --nodefault service:org.hst.office.vi.PdfOpen`. Linux runs

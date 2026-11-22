@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The v3 group packing (vcl/inc/HstRibbonV3Pack.hxx from hst-ribbon-v3-layout.patch) reproduces the owner-locked
 mockup: every group of data/ribbon/ribbon-v3.json, at the states L (with and without the sparse tab's fill), M and S,
 gets the blocks and looks that the mockup's own packItems()/packRun()/eff() draw.

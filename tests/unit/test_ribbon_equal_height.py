@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-equal-height.patch: one ribbon height in Writer, Sheets, Slides and Draw (gap list G06); since
 hst-ribbon-mockup-frame.patch a fixed 106 px body (tab row + 3 + 106 + 3 = 147 px) in every tab."""
 import os

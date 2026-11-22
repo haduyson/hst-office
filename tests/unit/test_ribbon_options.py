@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Ribbon: registration, the page's controls and texts, and the handler's calls to the core's
 vn.hasontech.hst.RibbonCustomization service (load and save of the recently used tab's switch, clearing the history,
 opening the customize dialog, an older core without the service)."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Sending an error report through the real helper process to a local fake server (never the real endpoint):
 201, 200 for a repeated reportId, 400, 413, 429, 5xx, redirect, timeout and no server; plus the crash prompt logic."""
 import json

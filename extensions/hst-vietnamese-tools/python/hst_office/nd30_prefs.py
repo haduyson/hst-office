@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The ND30 wizard's remembered choices, per user in /org.hasontech.hstoffice.Nd30 (core schema, hst-extension-settings-core.patch): the length of the rule
 under the agency name (nd30_rule_length). Read when the wizard opens, written when it is accepted; a missing schema or
 an unreadable profile falls back to the default and never stops the wizard."""

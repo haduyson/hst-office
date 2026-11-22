@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Stand-in uno/unohelper/com.sun.star modules so extension modules import outside the office (import this first).
 
 setdefault keeps the real modules when the office python is on the path."""

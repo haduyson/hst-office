@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Local preflight for the macOS build: catches the setup failures that otherwise cost a runner run.
 # Lints the macOS scripts and workflow, validates the configure options against the pinned
 # configure.ac, checks the HST patch series and the app-icon staging on this Linux machine.

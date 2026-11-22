@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tài liệu chưa lưu (unsaved_store, unsaved_dialog labels) and the settings-repair notice (profile_notice): the files
 the office writes are read, expired ones hidden, deletions done; no office needed."""
 import os

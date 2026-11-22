@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Convert every extracted MTEF v5 equation and write results.jsonl
 import sys,os,json,glob,collections
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))

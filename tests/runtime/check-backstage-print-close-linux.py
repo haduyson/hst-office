@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Linux: the ways a document ends while its File panel shows the Print page with a print job
 (hst-backstage-print-job-ends-before-close.patch); the Linux counterpart of check-backstage-print-close.py.
 A visible office per case and application (Writer, Sheets) on the X display of DISPLAY (your own Xvfb), any VCL

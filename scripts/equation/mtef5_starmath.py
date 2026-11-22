@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Prototype MTEF v5 (MathType 4-7, "Equation.DSMT4") reader and StarMath writer.
 
 Feasibility harness only: it parses an OLE "Equation Native" stream into a record tree,

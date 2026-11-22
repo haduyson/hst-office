@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ND30 administrative-document wizard dialog for Writer (fields, live preview, validation). Writes nothing itself.
 
 Layout (Map AppFont units): a form column on the left, labels in their own 96-unit column (long hints wrap onto

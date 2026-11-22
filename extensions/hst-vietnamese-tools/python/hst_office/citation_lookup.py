@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Online lookup of a reference by DOI, PubMed ID, arXiv ID or ISBN, and matching a pasted reference line through
 Crossref. Runs only when the user clicks "Tra cứu"; nothing here is called in the background.
 

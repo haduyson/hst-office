@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF signs with a visible signature box, with and without the optional signature/seal images.
 
 A synthetic one-page PDF is signed in the HST PDF viewer (.uno:HSTPdfSign) with a disposable software

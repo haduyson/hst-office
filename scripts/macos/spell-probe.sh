@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Record which spell checking services HST Office uses for Vietnamese on macOS and what each accepts.
 #   spell-probe.sh <HSTOffice_*.dmg> <out-dir>
 # Starts the app with a fresh profile (welcome dialog marked as shown), runs spell-probe.py over UNO with the

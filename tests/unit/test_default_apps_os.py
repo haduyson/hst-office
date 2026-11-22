@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Per-OS default-apps command building (pure) and the Linux launcher reading, without changing the machine."""
 import os
 import tempfile

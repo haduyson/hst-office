@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GUI check: "Chuyển thành giá trị khi lưu" writes the results of the HST function cells into the saved .xlsx/.xls
 while the open document keeps its formulas and its state (real build, soffice as the build user).
 

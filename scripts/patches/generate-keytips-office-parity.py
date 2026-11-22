@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate patches/libreoffice/hst-ribbon-keytips-office.patch from data/ribbon/keytips-office-parity.json.
 
 Usage: python3 scripts/patches/generate-keytips-office-parity.py [--check]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Paragraph roles of the document body (pure logic): what a line is decides how it looks.
 
 A line of a skeleton (data/vietnamese/skeletons-*.json) or of the wizard's body field is classified the same way, so an

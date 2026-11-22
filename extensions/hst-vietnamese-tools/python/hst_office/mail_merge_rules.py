@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ Quy tắc, the address block and the greeting as computed columns of the staging copy. Pure Python.
 
 Rules live in the document (mail_merge_store meta "rules", "skip"):

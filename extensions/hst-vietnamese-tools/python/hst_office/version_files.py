@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """File primitives of the "Phiên bản trước" store (version_store): document identity, hashed copies that can be
 cancelled, atomic writes and the store-wide lock shared by every office process of the user. Pure Python, no uno."""
 import calendar

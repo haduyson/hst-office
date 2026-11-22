@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Encrypted PDFs as document systems write them, for the signing tests (needs pikepdf/qpdf).
 
 Each sample is one page of text with an Info title, a catalog /Lang and, for the permission

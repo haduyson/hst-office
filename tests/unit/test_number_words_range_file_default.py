@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Đọc số thành chữ" in Sheets: planning a column of cells, and the file's own default kept as user-defined
 document properties (HST.DocTien.*, HST.DocSo.*)."""
 import unittest

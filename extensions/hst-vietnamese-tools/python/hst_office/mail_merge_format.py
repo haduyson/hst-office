@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: how a merged value is shown. Pure Python (no UNO): the format kinds offered for a column, the vi-VN
 number-format codes the fields carry (the engine formats the merged documents with them) and the same rendering in
 Python for the preview, the recipient table and file names.

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fakes for the Windows harness input gate: a desktop of windows (class, title, process) with a foreground window,
 and a stand-in windows_gui_win32 module whose user32 records every SendInput, so tests on any platform can prove
 which keys would have reached which window."""

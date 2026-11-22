@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Convert legacy-encoded text cells of a Calc selection to Unicode as ONE undo step (UNO objects are passed in).
 
 Bulk path: each block of string cells with one font is read with getDataArray, converted, and written back with

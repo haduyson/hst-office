@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Collects the v3 ribbon's layout dumps and screenshots from the real app, every main tab at several window widths.
 
 Usage: python3 tests/runtime/collect-ribbon-v3-dumps.py --instdir DIR --out DIR [--display :283]

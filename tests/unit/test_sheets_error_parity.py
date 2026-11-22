@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Remaining HST Sheets error values follow the leading spreadsheet application; no OpenCL formula results.
 
 Read from the new side of hst-sheets-error-parity.patch (no LibreOffice tree needed); runtime rows are in

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Where the running macOS app lives, and the one-time offer to move it into /Applications.
 
 Started straight from the mounted .dmg (/Volumes/...), from an App Translocation path (macOS runs a quarantined download

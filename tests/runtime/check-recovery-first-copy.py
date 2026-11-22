@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The first recovery copy of a new document comes about 30 s after its first change, also when the change comes
 right after the document opened (before AutoRecovery registered it).
 

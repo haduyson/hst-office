@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Phiên bản trước (OptionsDialog.xcu, dialogs/PreviousVersions.xdl).
 
 "Lưu phiên bản trước khi ghi đè tệp" is read and written through version_config, so an administrator lock shows the

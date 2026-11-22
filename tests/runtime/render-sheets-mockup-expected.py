@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Reads the ladder states of the Sheets mockup (mockup-sheets-slides-draw/hinh-mau-sheets.html) at each width.
 
 Usage: /root/.claude/skills/.venv/bin/python3 -I tests/runtime/render-sheets-mockup-expected.py \

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Sheets has the worksheet functions of the leading spreadsheet application that the engine lacked.
 
 Read from the patch (new side of each hunk), so no LibreOffice tree is needed

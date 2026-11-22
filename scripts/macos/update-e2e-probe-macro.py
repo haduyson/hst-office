@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """User Python macro of the macOS "Cập nhật ngay" probe (update-e2e-probe.py copies it into the probe profile).
 
 run() logs the updater's helper spawn, question and quit to ARGS["events"] and dispatches org.hst.office.update:Install

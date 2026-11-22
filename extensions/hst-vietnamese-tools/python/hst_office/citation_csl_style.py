@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """An imported CSL file as an engine style (kind "csl"): bibliography sort, citation clusters (sorting,
 citation-number ranges, note positions) and entries. ``install`` copies a user-chosen .csl into the user's style
 folder after it parsed cleanly. Pure Python (no uno)."""

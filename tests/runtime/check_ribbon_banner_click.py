@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """check-ribbon-banner.py, part 3: where a click goes, with the probe stubbed in a copy of the installation.
 
 The real installation is never modified: the copy is hard-linked and changed files are unlinked first.

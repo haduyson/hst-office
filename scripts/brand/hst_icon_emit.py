@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """SVG elements of snapped shapes: filled outlines (shipped) or editable strokes (drafts)."""
 from html import escape
 

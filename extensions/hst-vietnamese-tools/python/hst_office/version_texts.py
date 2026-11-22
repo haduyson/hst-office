@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese texts of "Phiên bản trước" (dialog, options page) and their pure formatting helpers (HST policy: the
 HST tools speak Vietnamese in every UI language and never name another office product)."""
 import time

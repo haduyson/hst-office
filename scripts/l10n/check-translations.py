@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Validate Vietnamese translations (JSONL rows with msgid/msgstr) before merging.
 
 Usage: python3 scripts/l10n/check-translations.py <file.jsonl|dir> [...] [--strict]

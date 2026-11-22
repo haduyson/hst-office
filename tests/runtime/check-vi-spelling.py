@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check Vietnamese spell checking on a real HST Office build (fresh profile, vi-VN).
 
 Usage: python3 tests/runtime/check-vi-spelling.py [--instdir upstream/libreoffice/instdir]

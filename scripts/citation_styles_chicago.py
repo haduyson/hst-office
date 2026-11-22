@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chicago Manual of Style 18: author–date and notes–bibliography."""
 from citation_styles_common import ALIAS, DOT, LINK, g, intl_opts, t, term, v
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime conversion checks: TCVN3 text with bold/italic runs is converted per run, formatting survives, one undo."""
 import json
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Khôi phục and Mở xem of "Phiên bản trước": the current file is stored before it is replaced, a failure at any
 step leaves the file as it was, the document is closed before and opened again after, and Mở xem opens a read-only
 copy named after the file and the version's time."""

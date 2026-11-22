@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Writer commands with the cursor or selection anywhere (error report: "RuntimeException: no text selection" from
 the view cursor while cells, a picture, frame, shape or comment were selected): on the real build, every scenario of
 nd30_insertion_scenarios gets the expected ND30 decision, the HST commands (ND30 wizard, TCVN3/VNI conversion, number

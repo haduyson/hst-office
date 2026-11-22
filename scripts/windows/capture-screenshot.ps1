@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Save a PNG of the whole primary screen. Usage: pwsh -File capture-screenshot.ps1 -Path out.png [-WithCursor]
 # -WithCursor draws the mouse pointer in (a screen copy leaves it out), for checks that move it.
 param([Parameter(Mandatory = $true)][string]$Path, [switch]$WithCursor)

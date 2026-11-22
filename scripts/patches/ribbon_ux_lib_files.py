@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Gla11y suppressions and Vietnamese .po entries of the ribbon UX rework generators (re-exported by
 ribbon_ux_lib.py, which documents the generators)."""
 from ribbon_ux_lib_core import BUTTON_CLASSES, read

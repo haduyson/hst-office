@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Feature search (Alt+Q) keywords and ranking, offline.
 
 The index of the search is built at run time from the menus, the add-on menus and the ribbon; the search words of

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime checks of the welcome dialog on a brand-new profile: shown once at first start, not at the second,
 reopened by the HST menu command, correct UTM links. The browser launcher is replaced by a recorder in the
 probe, so no browser is started. Needs an X display (modal dialogs)."""

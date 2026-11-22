@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The user's answers to the start-up questions, kept in a small file of the user profile.
 
 <profile>/user/hst-office/startup-choices.json, e.g.

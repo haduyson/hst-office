@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon buttons and groups at the approved 1.0.2 mockup's geometry (hst-ribbon-mockup-geometry.patch):
 vcl/inc/HstRibbonGeometry.hxx (new) and vcl/inc/HstRibbonGrid.hxx (as hst-ribbon-adaptive-grid.patch creates it,
 then this patch) compiled with a driver, and the wiring into ToolBox, the ladder and the ribbon paint."""

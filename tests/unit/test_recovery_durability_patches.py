@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Crash and power-cut durability of document recovery (offline checks of the patches and extension files).
 
 Patches (appended to the series in this order): hst-durable-file-helpers, hst-profile-durability,

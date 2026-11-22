@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The crash handler never waits forever on the configuration (hst-crash-handler-bounded-flush.patch).
 
 Owner report (Windows 1.0.1): a crash while a Writer document closed left the emergency save dialog with an empty

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build queue state on disk: configuration defaults, job records and drain state under HST_QUEUE_ROOT.
 """
 import contextlib

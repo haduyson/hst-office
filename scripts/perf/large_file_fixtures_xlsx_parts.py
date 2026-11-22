@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fixed .xlsx parts and the many-formats styles.xml of the large-file fixtures (large_file_fixtures_xlsx.py)."""
 
 CT = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'

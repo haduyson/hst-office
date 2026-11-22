@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Unit tests of the v3 layout-dump rules (tests/runtime/ribbon_v3_rules.py) on synthetic dumps; no display needed."""
 import copy
 import os

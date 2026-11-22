@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Job of "Phiên bản trước" on the document events of Jobs.xcu (strategy and timing: version_capture).
 
 - OnModifyChanged, when the document has become modified: copy its file in the background (prepare).

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Which icons the menus show and how sharp they are at 100/125/150/200 %, HST against pristine LibreOffice.
 
 Menu items take the small (16 px) icon of their command. This script lists every command of the

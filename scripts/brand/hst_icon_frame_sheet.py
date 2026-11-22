@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Review sheet and measurements of the HST frame glyphs (icon-themes-src/hst-modern/glyphs/stage-frame).
 
 For every master stage-frame/<name>.svg (24-unit grid) and its hand-tuned 16 px master

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What the frame screenshots (hst_frame_shots.py) shoot: the applications, the frame parts and how to find them
 in the accessibility tree, and the looks. Shared by the Linux and Windows runs."""
 

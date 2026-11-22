@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up dispatcher without an office: one modal question per start, in the fixed order, and the default-apps
 show-once / snooze rule (ask, "Để sau" again after 14 days, at most 3 times; never once answered or registered)."""
 import sys

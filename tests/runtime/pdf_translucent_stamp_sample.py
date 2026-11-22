@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A synthetic one-page PDF shaped like a signed administrative document: a few text lines, two signature widgets
 (/FT /Sig with a small appearance) and a diagonal stamp line of black text drawn under an ExtGState with /ca 0.1 on a
 page with a transparency group, the way signing software draws its faint "copy" line. Made from nothing but this code

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Fetch a released dmg for CI by its sha256, GitHub first (r1-auto-macos.yml old-profile).
 #   fetch-verified-dmg.sh <out.dmg> <sha256> <run-id> <artifact> <url>
 # 1. <out.dmg> already there with that sha256 (actions/cache restored it): done.

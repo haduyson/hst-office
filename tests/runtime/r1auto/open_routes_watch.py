@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """How W16 tells that a route opened its document: the window census polled until the document's window is shown,
 enabled, painted and in front of Explorer, with a timeline and screenshots as evidence."""
 from pathlib import Path

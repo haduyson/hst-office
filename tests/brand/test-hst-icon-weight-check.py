@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The optical weight and sharpness check of the shipped HST icons (scripts/brand/check-hst-icon-weight.py)."""
 import importlib.util
 from pathlib import Path

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Update-check texts: Vietnamese or English following the office UI language (the other HST commands are always Vietnamese)."""
 
 TEXTS = {

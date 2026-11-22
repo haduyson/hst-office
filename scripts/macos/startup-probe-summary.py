@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Summarise one start-up probe run: startup-probe-summary.py <run-dir> <label> [close_ms].
 
 Reads <run-dir>/launch.txt (epoch ms of the launch), samples.csv (startup-probe-sampler) and, when the

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One regression case per fix found through the corpus. Each case is a VBA function that returns "OK" or what went wrong.
 
 make_regression_fixtures.py stores them in real VBA projects (.xlsm, .docm) and check-vba-corpus-regression.py runs them in the sandbox.

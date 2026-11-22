@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Quick Search of the ND30 wizard's "Loại văn bản": Tab after a typed query takes the highlighted type and closes the list.
 
 The list covers the next seven fields. When Tab left it open, the focus moved to a control under it: what the user typed

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Every top-level GtkImage the patch series adds to a Tabbed notebookbar.ui is still some button's image once the
 whole series is applied. VclBuilder keeps an image no button takes as a second child window of the NotebookBar,
 which turns its layout off: the ribbon shrinks to a few pixels (HST Draw opened without its ribbon that way).

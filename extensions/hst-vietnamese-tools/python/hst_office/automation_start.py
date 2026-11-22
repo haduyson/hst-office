@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Was this office started by other software (a script, a converter, an automation client) rather than by a person?
 
 Such a start drives the office through the API: headless or invisible, a UNO connection (--accept, as the Python

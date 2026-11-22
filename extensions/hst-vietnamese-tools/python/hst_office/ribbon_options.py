@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Ribbon (OptionsDialog.xcu, dialogs/Ribbon.xdl).
 
 The ribbon lives in the core: this page talks to its UNO service vn.hasontech.hst.RibbonCustomization (an XJob whose

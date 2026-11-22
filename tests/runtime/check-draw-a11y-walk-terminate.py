@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """An AT-SPI client walking the office's accessibility tree while the office is terminated over UNO (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-draw-a11y-walk-terminate.py --instdir DIR --work DIR [--display :NNN]

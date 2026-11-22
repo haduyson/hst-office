@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GUI check of VND()/USD() in HST Sheets (real build, soffice as the build user): typed formulas, Excel files that
 call them through a Vietnamese number-words add-in, saving as .xlsx and .ods, and reopening.
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Every composed frame of the primary screen through DXGI Desktop Duplication (Windows, pure ctypes COM).
 
 GDI reads of the screen DC cost one compositor readback each (about 30 per second for the whole screen, about one per

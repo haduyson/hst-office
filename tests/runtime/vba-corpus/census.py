@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Count Excel and Word object-model use across the scanned macros, as data: nothing runs.
 
 Usage: census.py OUT.json TREE SCAN.jsonl... TREE is the LibreOffice source, for what its VBA API (oovbaapi) declares.

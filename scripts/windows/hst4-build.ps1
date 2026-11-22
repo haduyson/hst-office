@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 <#
 Development/test build of the HST Office MSI on a local Windows PC (HST4), following the same steps as
 .github/workflows/desktop-windows.yml. Official releases still come from CI. Toolchain: hst4-setup.ps1.

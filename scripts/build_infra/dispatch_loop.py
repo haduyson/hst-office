@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dispatcher of the local build queue (scripts/build-queue.py): `build-queue.sh dispatch` (systemd unit
 hst-build-queue.service, scripts/linux/hst-build-queue.service).
 

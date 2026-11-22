@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The HST menu always ends with "Giải pháp HASON TECH" and "Kiểm tra cập nhật".
 
 LibreOffice's configmgr orders set nodes by name length, then by name

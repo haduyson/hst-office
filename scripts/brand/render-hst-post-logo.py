@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Reproduce HST POST from the owner-supplied official HASON TECH artwork.
 
 Offline: the same pinned Playwright/Pillow dependencies as render-banners.py.

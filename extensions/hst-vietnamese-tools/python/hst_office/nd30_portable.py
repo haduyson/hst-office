@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The layout blocks as both renderers (.ott templates, wizard) write them, so long documents and their DOCX/DOC copies
 keep their layout page after page (pure logic, no `uno`)."""
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Daily display report: body schema and size, send decision, response handling, the feed attempt and the widget's
 Shown call. Every transport is stubbed: no network."""
 import json

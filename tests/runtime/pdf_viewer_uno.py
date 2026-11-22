@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF over UNO for the runtime checks: open a PDF in the viewer, .uno:HSTPdfInfo, sign a
 copy, and the handover to HST Draw (hidden loads, "Edit PDF File" (Sửa tệp PDF), the option off)."""
 import threading

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Paint the round-capped, round-joined strokes of a snapped HST glyph as filled outlines.
 
 VCL draws stroked lines with a half-device-pixel offset but fills polygons without one, so only

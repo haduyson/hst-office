@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Make a disposable copy of an installation and apply the icon/UI resources.
 
 Never edits --installed. The destination must not exist. This does not compile

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Regression cases for the Excel object members real macros use most, each checking the effect and not only that no error came."""
 
 SHEET_DATA = """Private Sub FillData(s As Object)

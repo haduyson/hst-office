@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ "Sửa danh sách người nhận" (mockup 02): the recipients in a table with a ☑/☐ column, search without
 diacritics, sort by a column or by given name, select all / none / only the matches. OK stores the choice in the
 document (mail_merge_store meta); "Đổi danh sách" and "Làm mới" end the dialog with their own result code."""

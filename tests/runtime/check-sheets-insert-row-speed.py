@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Insert/delete row speed of HST Sheets on a ledger whose rows look up whole columns (Linux, Windows, macOS).
 
 Usage: <python with uno> tests/runtime/check-sheets-insert-row-speed.py --soffice PATH/TO/soffice [--out DIR]

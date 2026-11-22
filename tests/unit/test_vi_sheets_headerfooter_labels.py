@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Sheets header/footer edit page shows "Preset", "Format", "Field" and its Bold/Italic/Underline tooltips in
 Vietnamese.
 

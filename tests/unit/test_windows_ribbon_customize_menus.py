@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Windows customize-menus check: how it finds the "Tùy chỉnh ribbon" entry of the context menus."""
 import importlib.util
 import os

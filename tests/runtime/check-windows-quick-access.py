@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: the quick access toolbar of an INSTALLED HST Office (hst-ribbon-adaptive-qat.patch; Linux counterpart:
 check-quick-access.py).
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The offline snapshot of check-access-keys.py (l10n/access-keys-snapshot.json) and the live HST menu."""
 import json
 from pathlib import Path

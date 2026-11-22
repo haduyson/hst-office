@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Prove the in-document representation of HST citations on a real build.
 
 Usage: python3 tests/runtime/check-citations-fieldmarks.py [--instdir DIR] [--out DIR] [--skip-perf]

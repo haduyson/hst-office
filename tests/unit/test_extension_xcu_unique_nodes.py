@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Configuration data of the bundled extension names every node once among its siblings.
 
 Two branches that each register a job for the same document event both add an Events/OnLoad node to Jobs.xcu; git

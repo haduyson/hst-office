@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A revised banner manifest must be a new generation, or clients that cached the old one refuse it.
 
 banner_store.check_generation() rejects a manifest whose generatedAt equals a cached one with other

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Linux: a GNOME/Cinnamon log out keeps the open documents and their changes (hst-gnome-end-session-save.patch).
 
 Usage: python3 tests/runtime/check-session-end-gnome.py --instdir <instdir> [--out tests/output/session-end-gnome]

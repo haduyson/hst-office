@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the Microsoft Office keyboard shortcuts of HST Writer, HST Sheets and HST Slides on a real
 build (GTK3, fresh profile, vi UI) - docs/SHORTCUTS-MSOFFICE.md.
 

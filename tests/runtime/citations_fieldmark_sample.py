@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The sample document of the citation fieldmark checks: citations in body text with a styled
 paragraph, in a directly formatted paragraph, in a table and in a footnote, plus a
 three-paragraph bibliography under a heading. Each field records what the checks expect."""

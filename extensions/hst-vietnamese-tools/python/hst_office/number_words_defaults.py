@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Defaults of number and money reading (DOCSO, DOCTIEN, "Đọc số thành chữ"). Pure Python, no UNO, shared by the
 dialog, the options page and the Sheets add-in functions.
 

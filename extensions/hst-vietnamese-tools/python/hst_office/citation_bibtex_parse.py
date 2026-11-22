@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """BibTeX/BibLaTeX syntax: entries (@type{key, field = value, …} or with parentheses), @string macros, "#"
 concatenation, nested braces, quoted values, month macros; @comment and @preamble are skipped. Values are returned
 raw (LaTeX not decoded yet). Errors name the line and skip to the next "@". Pure Python (no uno)."""

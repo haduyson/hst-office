@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of Alt+\\ (Chuyển TeX ⇄ công thức) in a visible HST Writer: X11 with xdotool, or Windows.
 
 Usage, Linux (as hstbuild inside tests/runtime/no-hst-telemetry.sh, on a display of your own):

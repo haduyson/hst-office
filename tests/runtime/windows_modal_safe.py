@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows UNO checks that tell "the office is waiting on a dialog" from "the office hangs".
 
 Why: a document loaded from the UNO bridge thread (no OnMainThread) whose import removes a drawing shape (every .docx

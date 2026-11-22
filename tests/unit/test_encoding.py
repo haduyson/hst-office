@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Encoding converter tests against golden vectors derived from glibc iconv and the Wikipedia/vietunicode
 VNI tables (tests/fixtures/vietnamese/derive-encoding-data.py) - never from the converter itself."""
 import json

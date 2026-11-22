@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese UI labels end without "..." / "…" (owner rule 2026-11-06), except the kept categories."""
 import glob
 import json

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Start-up timing of an HST Office MSI on a GitHub Windows runner (Git Bash), with the variants that split the time.
 #   startup-timing-windows.sh <HST msi> <out-dir> [variants]
 # variants (comma list, default all): hst (the installed office: fresh, warm x3, cold), trace (with the Python

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Xuất/PDF ▸ Mở trong HST PDF (org.hst.office.vi:OpenInHstPdf): show the document in HST PDF.
 
 The way back from "Chỉnh sửa bằng HST Draw" of HST PDF: a PDF opened in HST Draw and not changed is shown as it

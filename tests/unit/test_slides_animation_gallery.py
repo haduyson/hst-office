@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Slides animations gallery (hst-slides-animation-gallery.patch and its strings patch).
 
 The gallery is a toolbox controller in sd for .uno:HstApplyAnimation, built from a .ui file, and the

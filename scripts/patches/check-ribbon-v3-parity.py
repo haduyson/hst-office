@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Command parity of the v3 ribbons with 1.0.2: hst-ribbon-v3-ui.patch may move commands, never drop one.
 
 Usage: scripts/patches/check-ribbon-v3-parity.py --tree DIR      (a tree with the whole series applied)

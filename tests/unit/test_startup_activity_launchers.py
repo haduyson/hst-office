@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A launcher's own new blank document (HST Writer, HST Sheets, ... on macOS, Windows and Linux: --writer and the
 like) is no work of the user: the first-start questions (welcome, default apps, the launcher notice) come as on a plain
 start. A file, a closed document window or a change still counts (test_startup_prompts_after_work.py)."""

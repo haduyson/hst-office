@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Win32 side of check-recovery-kill-windows.py: the recovery dialog of our own office process, a click on one of its
 buttons (only when nothing covers it) and a desktop screenshot for evidence."""
 import ctypes

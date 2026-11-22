@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A start by other software (headless, invisible, --accept, conversion, COM automation) skips the welcome dialog and the
 default-apps question; a person's start keeps every question. The command line is read from sal (osl_getCommandArg)."""
 import ctypes

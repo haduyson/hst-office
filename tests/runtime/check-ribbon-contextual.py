@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the contextual ribbon tabs of HST Writer, Sheets and Slides on a real GUI (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-contextual.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]

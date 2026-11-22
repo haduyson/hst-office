@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The options every HST citation style has (the university differences are options, not separate styles).
 
 Each style file gives a value for every option; a preset or the document's settings (``HSTCitationStyle`` opts)

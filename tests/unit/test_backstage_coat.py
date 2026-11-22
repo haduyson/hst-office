@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The File tab (backstage) in the HST frame coat (hst-ui-coat-backstage.patch), read from the patch.
 
 The drawing itself (token colours, pill, focus ring, item height, no colour literal in the panel's code) is

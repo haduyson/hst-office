@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Rasterise a list of SVGs through VCL's own pipeline and write their ARGB pixels.
 
 Input (--jobs): {key: {"svg": text, "pixels": width, "height": height (default width)}}, e.g. from scripts/brand/hst_icon_frame_compare.py

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of Trợ giúp ▸ Báo lỗi cho HASON TECH in a real HST Office (soffice runs as hstbuild, never root).
 
 Usage: python3 tests/runtime/check-error-report.py [--instdir upstream/libreoffice/instdir]

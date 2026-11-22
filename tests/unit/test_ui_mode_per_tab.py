@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ui-mode-per-tab.patch: every document tab shows the user interface mode and the toolbars of its own module.
 
 User report 13/11/2026: after "Apply to All" (or trying the modes one by one) the Sheets tab of a window with Writer

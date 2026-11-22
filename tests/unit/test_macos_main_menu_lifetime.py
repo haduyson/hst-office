@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS: the application's main menu lives as long as the application (hst-macos-main-menu-lifetime.patch).
 
 Headless, closing the last document over UNO restored the default menu on a deallocated SalNSMainMenu (Signal 11 in

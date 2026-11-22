@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 <#
 Windows side of the local build queue (scripts/build-queue-dispatcher.py), run over SSH through
 tests/realwin/remote.py <host> ps. Prints one JSON line as its result.

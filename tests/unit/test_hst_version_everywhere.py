@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Sources of every place a user sees a version: the HST release, never the engine version (26.8) or LibreOffice.
 
 Works on the patch series alone (no LibreOffice tree): for each source file it follows the lines that the

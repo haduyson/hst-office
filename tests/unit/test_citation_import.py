@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Importers: RIS (Scholar, Scopus, Web of Science, VJOL), BibTeX, CSL-JSON, EndNote XML, PubMed, EndNote tagged."""
 import codecs
 import os

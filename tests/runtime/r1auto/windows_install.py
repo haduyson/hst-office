@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """W1 MSI with full UI defaults; never force the default-app property."""
 from pathlib import Path
 import subprocess

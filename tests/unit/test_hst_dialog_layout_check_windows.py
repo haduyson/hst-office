@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The dialog layout check's window handling: which cases run, which windows count as the dialog, and what is closed.
 
 A close request sent to a tooltip crashes the office (VCL's close handling of a help window), a progress window that

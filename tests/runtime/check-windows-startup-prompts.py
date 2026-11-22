@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up questions of an INSTALLED HST Office on Windows, start 1, 2 and 3 of a new user, as the user meets them.
 
 The Windows counterpart of check-startup-prompts.py (Linux), with its question and welcome titles. Unlike the Linux

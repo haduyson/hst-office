@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Spreadsheets of 50-200 MB for scripts/perf/large-file-open.py, written as a stream (no per-file memory growth).
 
     python large_file_fixtures_huge.py <out-dir> [--sizes 50,100,200] [--only xlsx-ketoan,xlsx-congthuc,docx-text,...]

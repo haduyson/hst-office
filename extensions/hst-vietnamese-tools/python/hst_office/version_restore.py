@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """File steps of "Khôi phục" and "Mở xem" in the "Phiên bản trước" dialog (pure Python; the office steps, closing
 and reopening the document, are in version_dialog).
 

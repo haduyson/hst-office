@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Rendering context of one reference and the template conditions (see citation_style_check for the grammar)."""
 from . import citation_language as language
 from . import citation_terms as terms

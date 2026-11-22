@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Layout reading of the ribbon scorecard's live part: the tab strip, group captions and boxes, chevron, banner and
 height, read through AT-SPI with a walk that stays out of the document area."""
 import sys

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up questions never land on the user's work: they wait for every document load, and on a busy machine the user
 has often opened, typed or closed something by then. A modal question opening then would hold closing a tab or
 quitting; it waits for a calmer start instead (the crash question, read once per start, still runs)."""

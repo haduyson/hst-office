@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Local incremental build of the HST Office Linux .deb, with the same steps as CI
 # (.github/workflows/desktop-linux.yml + scripts/linux/ci-build.sh of the branch being built), in one of the
 # parallel build slots under HST_BUILD_ROOT (default /data/hst-build). Agents normally go through the queue

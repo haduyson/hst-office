@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: switching ribbon tabs never shows an intermediate layout, on an INSTALLED HST Office (console session).
 
 Before hst-ribbon-adaptive-compact.patch reserved the banner's width before the page layout, a tab page first laid

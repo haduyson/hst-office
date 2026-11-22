@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Daily report of the local banner display counts (contract v1, docs/BANNERS.md "Display counting").
 
 Sent by the feed worker within the same once-per-86,400-seconds attempt as the manifest, never on the UI thread,

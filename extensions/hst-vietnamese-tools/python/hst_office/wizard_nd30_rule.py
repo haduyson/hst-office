@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The "Đường kẻ dưới tên cơ quan" row of the ND30 wizard: a list of lengths (nd30_rule_length.CHOICES) and an edit
 for a length in mm, enabled only for "Tự nhập (mm)". Off for profiles without an agency rule (the Party forms)."""
 from . import nd30_rule_length as rules

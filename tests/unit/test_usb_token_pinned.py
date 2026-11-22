@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pinned NSS stores: real Linux leases, native registration and no unused copy."""
 from contextlib import nullcontext
 import os

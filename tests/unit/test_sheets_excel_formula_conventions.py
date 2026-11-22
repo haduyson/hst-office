@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Sheets formulas follow the leading spreadsheet application's conventions in every UI language.
 
 Read from the patch (the new side of each hunk) and the Vietnamese l10n data, so no LibreOffice tree is

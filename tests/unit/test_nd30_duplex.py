@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"In hai mặt" rule per document type: Party documents mirror their margins (05-HD/VPTW IV.4.2), ND30 and Thông tư
 types keep them (ND30/2020 Phụ lục I, Phần I, Mục I, khoản 3 and 7; ND78/2025 Phụ lục I, Mục 1, I.3 and I.7 are
 silent on two-sided printing). Also the application on a fake page style and the stored document property."""

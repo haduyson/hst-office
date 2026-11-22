@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Texts of Trộn thư (mail merge): Vietnamese, and English when the office runs in English (the Gửi thư tab is
 core Writer UI, translated like the rest of the ribbon). Both tables have the same keys
 (tests/unit/test_mail_merge_texts.py). Vietnamese labels carry no trailing "…" (owner rule)."""

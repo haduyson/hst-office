@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Linux updater for .rpm installs (dnf / zypper / rpm / pkcon through pkexec) and AppImage installs (atomic
 replacement beside the old file, no root), run with isolated tool stubs like test_update_helper_linux.py."""
 import hashlib

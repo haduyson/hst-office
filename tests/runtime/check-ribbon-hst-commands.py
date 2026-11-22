@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check where the HST commands sit in HST Writer, Sheets and Slides (gtk3, vi_VN), as in Microsoft Office.
 
 Usage: python3 tests/runtime/check-ribbon-hst-commands.py [--instdir DIR] [--display :79] [--shots DIR] [--apps writer,calc,impress]

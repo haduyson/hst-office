@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Platform-neutral comparison of screen patch grabs for the tab switch flash checks (Windows and Linux).
 
 A grab is `count` patches of size x size BGRA pixels laid out side by side (rows of size*count pixels), as

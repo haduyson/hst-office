@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """TCVN3 (ABC) and VNI Windows -> Unicode conversion (pure logic, no `uno`).
 
 The mapping tables are data/vietnamese/encoding-maps.json; their sources and cross-checks are recorded in

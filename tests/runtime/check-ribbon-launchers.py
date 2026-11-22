@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Every ribbon group launcher (↘) opens its own group's dialog on the group's tab (owner rule, 2026-11-14).
 
 For each row of data/ribbon/launcher-targets.json: the installed notebookbar.ui gives the launcher exactly that

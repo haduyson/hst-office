@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese texts and prompts of the Trợ lý AI (the HST tools speak Vietnamese whatever the UI language). Pure."""
 
 COMMON = ("Bạn là Trợ lý AI tích hợp trong HST Office, bộ ứng dụng văn phòng tiếng Việt (HST Writer, HST Sheets, "

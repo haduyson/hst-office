@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Turn a static scan into sandbox jobs. Usage: make_jobs.py SCAN.jsonl INDEX.json OUT.json [--benign-repo R]... [--limit N]"""
 import argparse
 import json

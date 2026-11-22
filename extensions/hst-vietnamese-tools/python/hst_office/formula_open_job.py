@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức "tự chuyển khi mở" (Tùy chọn ▸ HST Office ▸ Công thức; off by default): after a document is
 opened, turn its remaining MathType equations into formulas (job on OnLoad). At OnViewCreated it also attaches
 the double-click question of formula_click to the new view (always: the option only decides "on open").

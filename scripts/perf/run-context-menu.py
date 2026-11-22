@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Orchestrate context-menu latency runs on Linux (X11 + XTest) or macOS (Swift CGEvent tool).
 
 Writes one JSON per matrix cell plus env.json into --output; analyse with analyze-context-menu.py.

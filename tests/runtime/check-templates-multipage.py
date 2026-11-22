@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Multi-page check of the administrative templates ("Văn bản hành chính") and of the wizard output of the same types.
 
 For every Writer template and page count of tests/fixtures/templates/multipage.json the body is grown with realistic

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pixel analysis runs in tooling Python; bundled pyuno needs no binary pip packages."""
 from pathlib import Path
 import sys

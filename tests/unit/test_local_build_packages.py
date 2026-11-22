@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Packaging helpers of scripts/linux/local-build.sh: .rpm/.AppImage only for refs whose ci-build.sh supports
 --rpm-appimage, and exactly the packages SHA256SUMS lists are copied to the output."""
 import hashlib

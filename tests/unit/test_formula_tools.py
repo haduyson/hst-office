@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: MathType equations are recognised from their OLE data, the commands are wired, and saving a
 document with formulas as .doc/.xls/.ppt asks first (other formats and documents without formulas never ask)."""
 import os

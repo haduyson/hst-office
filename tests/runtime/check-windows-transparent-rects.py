@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Translucent rectangles stay translucent on an INSTALLED HST Office (Windows): Impress slide show, Calc Text Import.
 
 VCL on Windows sends a translucent RECTANGLE drawn with OutputDevice::DrawTransparent(tools::PolyPolygon, percent) to

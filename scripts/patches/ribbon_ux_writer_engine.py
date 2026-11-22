@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Layout engine of generate-ribbon-ux-writer.py: takes toolboxes and buttons out of the Writer notebookbar.ui,
 builds groups from columns of them (2-row bodies, caption below, separator at the end), menu buttons with their
 menus, and orders the groups of each tab. Item specs (tuples, first element is the kind):

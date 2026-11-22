@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A session closed while "not responding" reads as a hang, and the heartbeat names what was open.
 
 Report 9 (Windows 10, several .xlsx open): three sessions ended with "previous session not closed", no crash signature,

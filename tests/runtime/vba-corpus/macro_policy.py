@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Decide from static analysis alone what may run in the sandbox, per procedure.
 
 Blocked in any file unless its source is listed as a benign test: Shell or process launches, downloads, system COM objects.

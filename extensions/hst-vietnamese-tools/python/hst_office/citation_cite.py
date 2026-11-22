@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """In-text citation clusters of numeric and author–date styles. Pure Python (no uno).
 
 A cluster is what one citation field shows: ``[15, tr. 314–315]``, ``[5, 21, 49]``, ``[7–11]``, ``[19], [25]``,

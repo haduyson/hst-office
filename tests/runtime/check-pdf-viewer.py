@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF runtime check: open, render, search, copy, sign with a USB token, verify.
 
 Generates sample PDFs with HST Office itself (6 pages of Vietnamese text, 50 and 300 pages),

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime layout check of the HST coat's tier-3 dialogs: opens each dialog, reads the accessible bounds of every
 control on every tab and reports what the rulebook forbids
 (plans/261120-0850-hst-ui-coat-tier2-3/reports/layout-rulebook.md):

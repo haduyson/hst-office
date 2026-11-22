@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Profile seeding for scripts/perf/large-file-open.py: no first-start dialogs, AutoRecovery and update checks off.
 
 Seeds: default (automatic spell checking off, as in HST), spell (automatic spell checking on, as in a profile where the

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A Windows harness office owns exactly the soffice.bin processes started with its private profile: keys and clicks
 reach only their windows, and WinOffice.stop ends only them (also the soffice.bin left by a first-start restart),
 never another agent's or the owner's office."""

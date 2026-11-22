@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Download the STEM corpus listed in a manifest, one directory per file, and check sha256.
 
 The files are never opened here; Google Drive's "large file" confirmation page is followed.

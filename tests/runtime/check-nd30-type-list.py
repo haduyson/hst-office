@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The open "Loại văn bản" list of the ND30 wizard stays on top of the fields it covers: hover, repaint, wheel and click.
 
 Usage: python3 tests/runtime/check-nd30-type-list.py --display :131 [--instdir upstream/libreoffice/instdir] [--out DIR]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Rich text runs of formatted citations and bibliography entries. Pure Python (no uno).
 
 A run is ``(text, flags)`` while formatting; ``flags`` is a string of the letters ``i`` (italic), ``b`` (bold) and

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dialog side of check-digital-signature.py: the UITest-driven signing dialogs, token PIN prompts, the welcome
 dialog and the start of the office (gen VCL plugin: UITest reaches VCL dialogs only)."""
 import os

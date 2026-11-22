@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A later macOS commit may change the workflow checker, which spans check-workflows.py and its rules module."""
 from pathlib import Path
 import subprocess

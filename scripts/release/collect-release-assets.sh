@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Collects the installers of successful Windows, Linux and macOS builds of ONE commit on main,
 # verifies each artifact against its own SHA256SUMS and writes them, plus one combined
 # SHA256SUMS, to an output directory for the release workflow.

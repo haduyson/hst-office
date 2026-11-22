@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ctrl, Alt and Shift alone must be harmless in every kind of window (gtk3, real GUI).
 
 Usage: python3 tests/runtime/check-modifier-keys.py [--instdir DIR] [--display :71] [--out DIR]

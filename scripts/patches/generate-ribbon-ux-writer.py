@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate the HST Writer part of the ribbon UX rework (audit 13/11/2026, section 3).
 
 Usage: scripts/patches/generate-ribbon-ux-writer.py --tree DIR [--check]

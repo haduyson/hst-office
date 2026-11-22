@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows driver of check-citations-dialogs.py (stdlib ctypes only, so HST's bundled Python runs it).
 
 Runs in the tester's own Windows session (a disconnected one is fine: see citations-dialogs-own-session.ps1), never

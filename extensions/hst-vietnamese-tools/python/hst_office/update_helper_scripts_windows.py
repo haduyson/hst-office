@@ -1,10 +1,11 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """PowerShell template of the Windows updater; update_helper_cmd.build_helper fills it in.
 
 The office starts this script elevated (update_launch.run_elevated) before it closes, then the script waits for the
 office to exit, re-checks SHA256, runs msiexec and reopens HST Office through the desktop shell (not elevated)."""
 
-POWERSHELL = r'''# SPDX-License-Identifier: AGPL-3.0-only
+POWERSHELL = r'''# SPDX-License-Identifier: LicenseRef-HST-Proprietary
 param(
     [Parameter(Mandatory=$true)][int]$ProcessId,
     [Parameter(Mandatory=$true)][string]$Installer,

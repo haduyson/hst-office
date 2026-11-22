@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Texts of the Writer ribbon UX rework (generate-ribbon-ux-writer.py): ribbon-only labels, group captions,
 icons, menus of the new menu buttons and the second line of the tooltips. English msgid, Vietnamese msgstr;
 terms of docs/L10N_GLOSSARY.md and the audit's glossary ("Macro", "Trộn thư", "và" in group names)."""

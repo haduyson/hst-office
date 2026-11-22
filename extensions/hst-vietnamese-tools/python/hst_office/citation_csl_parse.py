@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Read a CSL 1.0 style file the user chose (.csl, XML). HST bundles no CSL file; an imported file stays the
 user's own and is only read. A DOCTYPE/ENTITY declaration is refused, the file is limited to 1 MB, and elements
 outside the supported subset are listed as warnings (they print nothing). Pure Python (no uno)."""

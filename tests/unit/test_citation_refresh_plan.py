@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """citation_refresh_plan with the real formatter: what a refresh writes, in which order, and when it writes nothing.
 
 Fields are given as citation_document.scan lists them: raw order (footnotes before the body) with a reading rank."""

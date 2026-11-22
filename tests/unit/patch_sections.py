@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Read the per-file sections of a patch in patches/libreoffice (added lines, lines after the patch)."""
 import os
 import re

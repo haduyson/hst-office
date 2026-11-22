@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The 1.0.3 ribbon's banner picks the standard size (360/640/960 x 96) that fits its width: the feed downloads the
 standard sizes with the other images (client_specs), every serialized variant tells its standard width, and the
 Width argument of org.hst.office.BannerFeed selects the variant (banner_snapshot.variant_key)."""

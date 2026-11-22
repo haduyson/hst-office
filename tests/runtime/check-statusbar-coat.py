@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of the HST status bar (the StatusBar part of the frame coat) in Writer, Linux gtk3, on an Xvfb of
 your own that this script never starts or stops:
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the HASON TECH block of the Start Center: its heading, one separately clickable card per solution and the
 "Xem thêm" link, in the left column of the Start Center window (HstStartCenterWindow, drawn on one canvas whose items
 are accessible objects). The Start Center shows no HASON TECH banner (the owner took it out; the ribbon and the File

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check a banner manifest (banners.json) and, optionally, its image files before publishing.
 
     validate-banner-manifest.py MANIFEST [--assets DIR] [--require-sizes] [--bundled]

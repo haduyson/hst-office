@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check symbols and check boxes on a real HST Office build (fresh profile, headless).
 
 Usage: <instdir>/program/python tests/runtime/check-insert-symbol.py --instdir <instdir> [--out DIR]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Deterministic, opaque Start Center card with exact Vietnamese campaign copy."""
 from PIL import Image, ImageDraw, ImageFont
 

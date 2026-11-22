@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # macOS probe of the launchers HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF (scripts/macos/
 # make-app-launchers.py, hst_office/mac_app_launchers.py) on a GUI runner:
 #   - the five bundles inside HST Office.app (module, icon, signature, Gatekeeper when Developer ID signed);

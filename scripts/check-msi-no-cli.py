@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that the Windows MSI carries no legacy CLI-UNO (.NET Framework) bridge and puts nothing in the GAC.
 
     check-msi-no-cli.py [--msi FILE]

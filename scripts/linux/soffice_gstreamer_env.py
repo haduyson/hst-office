@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Keep GStreamer's DirectFB video sink away from HST Office's media playback (the shared program/soffice script).
 
 avmedia plays video through GStreamer's autovideosink (gen/kf5, or gtk3 without gtksink). On a system with

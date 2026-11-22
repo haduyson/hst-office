@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Feed every generated StarMath formula to a running LibreOffice Math (UNO) and flag parse errors.
 # A StarMath parse error becomes an SmErrorNode, exported to MathML as the U+00BF glyph.
 import sys, json, os, time, re, html, unicodedata, collections, uno

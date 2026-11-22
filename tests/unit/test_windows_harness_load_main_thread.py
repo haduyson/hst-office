@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Windows harness loads documents on the office's main thread (OnMainThread), as a user's open does.
 
 Loaded from the UNO bridge thread, the frame, sidebar and toolbars were built in that thread; on Windows each

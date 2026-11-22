@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Classifies the groups of a Writer ribbon tab as L, M, S or C (the mockup's ladder) from measured accessible nodes.
 
 Input is a list of nodes (role, name, box, ancestor_boxes): box is (x, y, w, h) in pixels, ancestor_boxes the boxes of

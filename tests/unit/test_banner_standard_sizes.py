@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Standard banner sizes ("sizes": 360/640/960 x 96 at 1x and 2x) in the version 1 banner manifest, and the
 publisher's validator scripts/brand/validate-banner-manifest.py."""
 import copy

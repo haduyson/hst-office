@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức commands (Chèn ▸ nhóm Công thức, and the question on double-clicking a MathType equation):
   - ConvertFormulas ("Chuyển công thức"): every MathType equation of the document, one undo step;
   - AskConvertFormula: the selected MathType equation, after asking (formula_click runs it when such an equation is

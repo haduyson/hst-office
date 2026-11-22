@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Where the ND30 wizard writes: decided from the view's selection (writer_selection), never from the view cursor's
 text methods, which throw "no text selection" while cells, a picture, frame, shape or comment are selected.
 

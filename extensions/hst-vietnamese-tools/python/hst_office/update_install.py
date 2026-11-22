@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO flow of "Cập nhật ngay": progress dialog -> verified installer -> question -> helper + normal office shutdown.
 
 Never silent: the download starts on the user's click, the install only after the user answers "Cập nhật ngay" to
@@ -12,7 +13,6 @@ import os
 import platform
 import threading
 import time
-
 from . import update_config
 from . import update_helper_cmd as cmd
 from . import update_installer as installer

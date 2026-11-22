@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Windows contextual keep-tab check: its reading of the MSAA tab row and the objects it covers."""
 import importlib.util
 import os

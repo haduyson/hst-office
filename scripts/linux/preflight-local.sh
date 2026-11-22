@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Local preflight for the Linux .deb workflow: lint the CI scripts and the workflow so a
 # trivial error does not cost a multi-hour runner build. actionlint is the pinned binary
 # that scripts/windows/preflight-local.sh installs into work/tools (ci-quality runs it first).

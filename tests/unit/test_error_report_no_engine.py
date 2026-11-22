@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """An error report names the HST Office version only: no engine version (26.8) in what the user sees or sends.
 
 The dialog summary, the preview (the JSON body), the systemInfo lines, the e-mail fallback and the attached local

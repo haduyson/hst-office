@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Layout rules of the HST ribbon groups (owner decision of 13/11/2026, approved 1.0.2 mockup of 15/11/2026), shared
 by the layout check (check-ribbon-layout.py) and the generator that applies them (generate-ribbon-ux-uniform.py).
 

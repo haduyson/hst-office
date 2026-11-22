@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Giao diện: "Kiểu biểu tượng" Cổ điển (default) or Hiện đại (nhiều màu) (owner 2026-11-08).
 
 Writes /org.openoffice.Office.Common/Misc/SymbolStyle. The office applies it at once: the change notifies

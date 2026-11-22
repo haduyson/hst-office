@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The model of check-access-keys.py: menus and Tabbed notebookbars of the source tree, with their labels."""
 from pathlib import Path
 import xml.etree.ElementTree as ET

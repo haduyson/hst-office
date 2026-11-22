@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # HST Office and the distribution's LibreOffice installed and running side by side.
 #   check-coexistence.sh <hst-office.deb> [<out-dir>]
 # On the host: runs itself in a disposable ubuntu:24.04 container (removed on exit) and copies the log

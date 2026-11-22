@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-adaptive-autorecovery.patch: AutoRecovery saves every 3 minutes (RecoveryDefaults.xcu); documents
 larger than 5 MB wait 10 minutes (never less than the user's own interval). Crash and shutdown saves are unchanged.
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Crash evidence for the Windows runtime checks: attach ProcDump to every soffice.bin that starts, so an unhandled
 # fault is written as a full dump at the ORIGINAL fault. With a debugger attached Windows hands the exception to the
 # debugger before the office's own crash handler, which on a close crash faults again and exits with 255 without a

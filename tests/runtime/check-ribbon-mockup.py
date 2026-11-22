@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Checks the Writer ribbon tabs Trang đầu and Chèn (gtk3, vi_VN) against the mockup's reference vectors.
 
 Usage: python3 tests/runtime/check-ribbon-mockup.py --instdir DIR [--display :281] [--out DIR] [--sweep-step 10]

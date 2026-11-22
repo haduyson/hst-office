@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Cases of check-sheets-excel-functions.py: every function added for the leading spreadsheet application.
 
 Formulas use ';' between arguments and '.' as decimal point; the runner converts them to the locale. DATA fills

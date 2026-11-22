@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GUI check of the "Macro VBA" entry points in HST Sheets, Writer, Slides and Draw (GTK3, fresh Vietnamese profile).
 
 Usage: python3 tests/runtime/check-vba-editor.py [--instdir upstream/libreoffice/instdir]

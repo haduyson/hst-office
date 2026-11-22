@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: the recipient list in memory. Pure Python (no UNO), shared by the dialogs, the preview and the staging
 copy the engine merges from.
 

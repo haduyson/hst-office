@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Windows smoke: HST Office's own automation names, with HST Office installed and no LibreOffice.
 #   smoke-com-automation.ps1 -Out <dir>
 # LibreOffice's ProgIDs (com.sun.star.ServiceManager, Writer.Application, Calc.Application) do not resolve.

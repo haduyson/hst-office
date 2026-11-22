@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Spreadsheet fixtures of scripts/perf/large_file_fixtures.py, written by hand: cached results, shared formulas."""
 import random
 import zipfile

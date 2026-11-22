@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Wait, on a worker thread, until the office has finished its start-up work.
 
 Background work that starts processes or burns CPU (the banner feed helpers) must not compete with the start-up:

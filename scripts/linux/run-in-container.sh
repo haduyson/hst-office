@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Runs scripts/linux/ci-build.sh inside a long-lived build container so the .deb is linked
 # against that image's glibc (Ubuntu 22.04: the oldest supported desktop). ci-build.sh calls
 # this itself when HST_CONTAINER=<image> is set and HST_IN_CONTAINER is not.

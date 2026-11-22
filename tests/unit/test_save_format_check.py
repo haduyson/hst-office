@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The warning before a Sheets document with HST functions is saved as .xlsx/.xls: rules, remembered answer, the
 answer given to the core save code, and that the open document is only read."""
 import os

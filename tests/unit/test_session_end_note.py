@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A shut down, restart or log off is not a crash (patch hst-session-end-note, session_end.py).
 
 Measured on 1.0.1 and rc/1.0.2-batch5: the next start after systemd's SIGTERM (Linux) or after Windows ended the office

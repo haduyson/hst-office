@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: at log off / shut down the office answers WM_QUERYENDSESSION at once and quits by itself.
 
 Run with the office's Python in the test user's own session (windows-own-session-task.ps1):

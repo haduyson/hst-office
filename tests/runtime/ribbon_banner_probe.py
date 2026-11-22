@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers for check-ribbon-banner.py: expected items, banner recognition, ribbon geometry.
 
 The banner is recognised in screenshots by comparing the drawn slot with every bundled artwork,

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Run an hst_gui based runtime check (written for Linux/Xvfb) on Windows, through hst_gui_windows.Office.
 
 Usage (with the office's own python.exe; --ui needs an interactive session, see windows-own-session-task.ps1):

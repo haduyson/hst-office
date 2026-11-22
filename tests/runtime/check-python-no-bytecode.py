@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check that the office writes no Python bytecode into its installation and keeps a bytecode cache in the user
 profile instead (hst-python-no-bytecode.patch, Linux).
 

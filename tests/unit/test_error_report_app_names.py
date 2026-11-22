@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Error reports name apps by their HST product names; the engine's module names stay a server key only.
 
 What the user reads or sends as text (dialog summary, systemInfo "App:", crash text, e-mail, the payload's "appName")

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST document commands without a document (the Start Center) and the test-only failure hook of the dispatcher.
 
 UNO modules are stubbed; frames, controllers and models are plain fakes."""

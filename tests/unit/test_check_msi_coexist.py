@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """scripts/check-msi-coexist.py: the Registry-table rules for names HST Office must not share with LibreOffice."""
 import importlib.util
 from pathlib import Path

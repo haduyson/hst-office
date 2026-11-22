@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF toolbar layout, shared by the Linux and the Windows checks.
 
 HSTPdfInfo reports ToolbarLayout ("id x y width height preferredWidth preferredHeight" of each visible toolbar

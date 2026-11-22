@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """tests/runtime/check-ribbon-layout-converges.py (the ribbon's layout settles) and the settle wait of
 collect-ribbon-v3-dumps.py: the parts that run without an office."""
 import argparse

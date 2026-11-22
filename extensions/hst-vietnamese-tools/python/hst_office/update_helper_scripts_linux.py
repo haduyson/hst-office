@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """install_update() of the Linux updater for .rpm and AppImage installs (the .deb one is update_helper_scripts.LINUX_DEB).
 
 Same contract as the .deb path: return the tool's exit code, set FAIL=cancel/auth from pkexec (126/127) and FAIL=tool

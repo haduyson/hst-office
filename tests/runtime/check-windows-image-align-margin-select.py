@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Writer: centre a picture like a word processor, and select lines from the left margin (INSTALLED HST Office,
 Windows; the same steps as check-image-align-margin-select.py on Linux).
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime proof for the bundled HST Vietnamese tools: installs the built .oxt into an isolated profile with
 unopkg, drives LibreOffice over a UNO socket and checks real documents (insert/undo/save/reopen, conversion
 with formatting, Calc formats and CSV).

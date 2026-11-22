@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Keeps the extension's modal dialogs (dialogs.Dialog.execute) reachable: shown parent, centred, in front, logged.
 
 A modal dialog blocks the input of every document window while its modal loop runs. When its own window is not on

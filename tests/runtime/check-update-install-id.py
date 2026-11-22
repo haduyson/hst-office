@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of the anonymous install ID of the update check in a real HST Office (Linux).
 
 Usage: python3 tests/runtime/check-update-install-id.py --display :157 [--instdir upstream/libreoffice/instdir]

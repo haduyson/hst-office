@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The HTTPS helper of the online lookup: only the allowed hosts over HTTPS, no header injection, and a
 User-Agent without any address."""
 import unittest

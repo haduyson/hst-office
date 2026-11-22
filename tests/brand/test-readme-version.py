@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """check-branding --release: the installed ReadMe names the HST version, never the engine version (26.8)."""
 import os
 import shutil

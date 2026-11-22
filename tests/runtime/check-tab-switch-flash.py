@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Switching document tabs never shows a blank, partial or missing window (Linux, GUI build, existing X display).
 
 The Linux counterpart of check-windows-tab-switch-flash.py. X11 without a compositor shows a mapped window at once,

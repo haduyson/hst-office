@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Prepare the inputs of the signing probe (.github/workflows/macos-signature-probe.yml, job "sign")
 # from a released dmg, the way a desktop-macos build hands them to its "sign" job:
 #   prepare-signing-probe.sh <released dmg> <work-dir>

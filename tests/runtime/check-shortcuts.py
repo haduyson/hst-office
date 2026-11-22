@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the standard keyboard shortcuts on a real HST Office build (GTK3, fresh profile).
 
 Usage: python3 tests/runtime/check-shortcuts.py [--instdir upstream/libreoffice/instdir]

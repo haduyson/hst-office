@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Large ribbon buttons show 24 px images (owner rule: every large button but Paste).
 
 The rule itself (scripts/patches/check-ribbon-large-icons.py) is tested on small documents; the patches are

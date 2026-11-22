@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Group layout of the Slides/Draw ribbon rework (generate-ribbon-ux-impress-draw.py): toolboxes, 2-row
 group grids, captions and the order of a tab's groups."""
 import xml.etree.ElementTree as ET

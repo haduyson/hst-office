@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Office commands of scripts/macos/app-launchers-probe.py (bundled python with pyuno; the office's UNO pipe comes
 from the probe profile): frame titles, top windows, the options buttons of the app icons, quit diagnostics, Impress's
 template dialog and the File ▸ New check."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: which embedded objects are MathType equations, from their OLE data (no UNO here).
 
 An OLE object's data is an OLE compound file; its root entry names the program that made it by class id:

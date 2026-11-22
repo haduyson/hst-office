@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure (uno-free) logic of the HASON TECH welcome dialog: UTM links and the dialog content model.
 
 All text comes from data/solutions.json, which is bundled in the package; nothing is fetched at run time.

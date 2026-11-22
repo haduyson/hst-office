@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared scenario of check-ui-mode-tabs.py (Linux) and check-windows-ui-mode-tabs.py (Windows): document tabs of
 modules in different user interface modes keep the mode of their own module.
 

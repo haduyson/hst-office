@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dialog containers for check-access-keys.py: mnemonics of the .ui dialogs in the source tree.
 
 One container per toplevel object of a .ui file; a GtkMenu nested in it (a popup) is a

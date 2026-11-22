@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Optional per-item compact banner artwork ("imageCompact") in the version 1 banner manifest."""
 import copy
 import json

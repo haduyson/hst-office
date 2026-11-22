@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Launcher search keywords without third-party product names (scripts/linux/make-single-deb.py).
 
 Upstream launchers list other vendors' products in Keywords= (e.g. "<vendor> <word processor>") so that a search for

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The HST frame glyphs (stage-frame) and the frame inventory they are drawn for.
 
 * metadata/frame-inventory.json lists frame elements only (never menu items, which keep the

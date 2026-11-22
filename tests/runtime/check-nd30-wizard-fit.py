@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The ND30 wizard ("Văn bản hành chính") fits the screen's work area: on a small screen (1366x768 at 125 %: about
 708 px of work area) it drops the preview column and, still too tall, scrolls its form while the check boxes and the
 OK/Cancel buttons stay in view (wizard_scroll_band). Shows the real dialog over a Writer window, measures it, scrolls

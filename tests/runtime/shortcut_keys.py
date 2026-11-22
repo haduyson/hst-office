@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Key input helpers of the keyboard shortcut runtime checks: results, waiting, one Office instance's keys."""
 import os
 import subprocess

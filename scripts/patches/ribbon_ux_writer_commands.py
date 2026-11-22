@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The split button of the Writer ribbon UX rework (generate-ribbon-ux-writer.py), as the Sheets "Định dạng ngày
 tháng" button of hst-ribbon-extensions-tab.patch: a Writer-only Controller.xcu node gives the command a
 GenericPopupToolbarController whose arrow opens a popup menu file of sw/uiconfig/swriter/popupmenu. A click on the

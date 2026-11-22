@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Word's page border art: every one of its 164 names survives DOCX, and HST paints a set for it. Used by check-dialogs-writer.py."""
 import os
 import re

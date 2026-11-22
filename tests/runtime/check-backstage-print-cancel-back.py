@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Hủy" (Cancel) and "Quay lại" (Back) of the Print page of the File panel (hst-backstage-print-cancel-back.patch)
 in a visible office, driven by widget id through the UITest service. The service sees VCL widgets only: on Linux run
 it with SAL_USE_VCLPLUGIN=gen (gtk3 builds the panel from native GTK widgets; there --shots-only takes the

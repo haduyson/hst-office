@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Collect macOS build metrics: phase timings, compile progress, disk, memory, log tails.
 
 Usage: python -I scripts/macos/summarize-build.py --work ~/hst --out ~/hst/artifacts --arch arm64

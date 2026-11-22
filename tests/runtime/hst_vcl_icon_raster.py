@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Rasterise SVG icons through VCL's own pipeline and measure their sharpness.
 
 VCL loads an SVG icon with vcl::bitmap::loadFromSvg (vcl/source/bitmap/BitmapTools.cxx): the SVG
