@@ -3,6 +3,8 @@
 import unohelper
 from com.sun.star.awt import XTopWindowListener
 
+from . import dialog_native_sizes
+
 
 class _Closing(unohelper.Base, XTopWindowListener):
     """The title bar's close button."""
@@ -41,6 +43,7 @@ def open_modeless(dialog, parent_peer=None, on_close=None):
     toolkit = dialog.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", dialog.ctx)
     dialog.dialog.setVisible(False)
     dialog.dialog.createPeer(toolkit, parent_peer)
+    dialog_native_sizes.fit_all(dialog)  # radio/check rows and spin fields as large as the theme draws them
     for name, listener in dialog._listeners:  # what Dialog.execute adds before its modal loop
         dialog.dialog.getControl(name).addActionListener(listener)
     closing = _Closing(on_close or (lambda: close(dialog)))

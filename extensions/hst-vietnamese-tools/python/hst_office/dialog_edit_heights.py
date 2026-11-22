@@ -9,6 +9,24 @@ already high enough keep their layout height.
 """
 
 
+def pixels_to_units(peer, pixels, horizontal=False):
+    """The fewest Map AppFont units that `peer` draws at least `pixels` pixels high (or wide)."""
+    from com.sun.star.awt import Size
+    from com.sun.star.util.MeasureUnit import APPFONT
+
+    def size(value):
+        return Size(value, 0) if horizontal else Size(0, value)
+
+    def along(result):
+        return result.Width if horizontal else result.Height
+    need = along(peer.convertSizeToLogic(size(pixels), APPFONT))
+    for _ in range(64):  # the logic size rounds down by at most a unit or two; bounded against a broken conversion
+        if along(peer.convertSizeToPixel(size(need), APPFONT)) >= pixels:
+            break
+        need += 1
+    return need
+
+
 def room_below(dialog, name):
     """Map AppFont units from the top of `name` to the top of the nearest control below it that it overlaps
     horizontally (the dialog bottom when there is none)."""
@@ -24,16 +42,11 @@ def room_below(dialog, name):
 
 def fit_edits(dialog):
     """Grow every single-line edit of `dialog` (its peer exists) to its preferred height, capped by room_below."""
-    from com.sun.star.awt import Size
-    from com.sun.star.util.MeasureUnit import APPFONT
     peer = dialog.dialog.getPeer()
     for name in dialog._single_lines:
         model = dialog.model.getByName(name)
         try:
-            pixels = dialog.dialog.getControl(name).getPreferredSize().Height
-            need = peer.convertSizeToLogic(Size(0, pixels), APPFONT).Height
-            while peer.convertSizeToPixel(Size(0, need), APPFONT).Height < pixels:
-                need += 1
+            need = pixels_to_units(peer, dialog.dialog.getControl(name).getPreferredSize().Height)
         except Exception:  # noqa: BLE001 - no size information: keep the layout height
             continue
         if need > model.Height:

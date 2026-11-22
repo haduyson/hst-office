@@ -14,7 +14,7 @@ import unohelper
 from com.sun.star.awt import XActionListener, XWindowListener
 from com.sun.star.style.VerticalAlignment import MIDDLE
 
-from . import dialog_registry, help_pages, welcome_content
+from . import dialog_native_sizes, dialog_registry, help_pages, welcome_content
 from .data_files import EXT_ROOT, load_data
 from .dialogs import Dialog, is_dark, PALETTES
 
@@ -169,6 +169,7 @@ class Welcome:
         d, toolkit = self.d, self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", self.ctx)
         d.dialog.setVisible(False)
         d.dialog.createPeer(toolkit, parent_peer)
+        dialog_native_sizes.fit_all(d)  # the check box row as high as the theme draws it
         keep = []
         for name, url in self.links:
             listener = _Click(lambda u=url: self._click(u))
