@@ -328,6 +328,12 @@ danh sách tệp trong bundle không đổi và `codesign --verify --deep --stri
 `informational`); trên Linux `tests/runtime/check-python-no-bytecode.py` (instdir: không có bytecode trong
 bản cài, bytecode của phần mở rộng HST nằm trong `cache/python` của hồ sơ).
 
+Trang chủ (Start Center) trên macOS: [macos-start-center-probe.yml](../.github/workflows/macos-start-center-probe.yml)
+(input `tag` hoặc `run_id`, `sizes` gồm các `RộngxCao` tính bằng point và/hoặc `maximized`) chạy
+[start-center-probe.sh](../scripts/macos/start-center-probe.sh): lần khởi động headless đầu lưu năm tài liệu mẫu
+làm tài liệu gần đây (ghim hai), lần khởi động có giao diện đặt cửa sổ Trang chủ theo từng kích thước, chụp màn
+hình và ghi `start-center.json` (DPI office thấy, mục trợ năng nằm ngoài cửa sổ, thanh cuộn). Chỉ là bằng chứng.
+
 Người dùng macOS 15: mở app → hộp "Apple không thể xác minh…" → **Xong** → **Cài đặt hệ thống ▸ Quyền riêng
 tư & Bảo mật ▸ Vẫn mở** (*Open Anyway*) → xác nhận mật khẩu → mở lại, chọn **Vẫn mở**. Dự phòng:
 `xattr -dr com.apple.quarantine "/Applications/HST Office.app"`.

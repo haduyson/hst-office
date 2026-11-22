@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: macOS Start Center probe
+# Screenshots the Start Center of a macOS dmg on a GUI runner at several window sizes, with five recent
+# documents, and records which of its items fall outside the window. Evidence only; nothing is published.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag whose arm64 dmg is probed (used when run_id is empty)'
+        type: string
+        default: v1.0.3
+      run_id:
+        description: 'Desktop macOS run id whose arm64 dmg artifact is probed (overrides tag)'
+        type: string
+        default: ''
+      sizes:
+        description: 'Window sizes in points (WxH) and/or maximized, comma-separated'
+        type: string
+        default: '960x600,1100x700,1280x800,1440x900,maximized'
+permissions:
+  contents: read
+concurrency:
+  group: macos-start-center-probe
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download the dmg
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/dmg"
+          if [ -n "$RUN_ID" ]; then
+            [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id" >&2; exit 1; }
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern '*macos-arm64-dmg*' --dir "$RUNNER_TEMP/dmg"
+          else
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg"
+          fi
+          find "$RUNNER_TEMP/dmg" -name '*.dmg'
+      - name: Screenshot the Start Center
+        shell: bash
+        env:
+          SIZES: ${{ inputs.sizes }}
+        run: |
+          set -eu
+          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
+          bash scripts/macos/start-center-probe.sh "$dmg" "$RUNNER_TEMP/startcenter" "$SIZES"
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-start-center-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/startcenter/
+          if-no-files-found: error
+          retention-days: 7
