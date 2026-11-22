@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Git side of the build train: a private clone under <queue root>/train/repo where trains are merged, pushed as
 train/<prefix>NNN and deleted again. Safety rules enforced here, not by callers:
   - only refs/heads/train/... is ever pushed or deleted; there is no force push at all;

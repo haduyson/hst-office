@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Để sau" on the update infobar and in the Kiểm tra cập nhật dialog: the notice closes, the version is not skipped,
 the File panel entry stays and the next automatic check (24 hours later) announces it again. The office is stubbed."""
 import unittest

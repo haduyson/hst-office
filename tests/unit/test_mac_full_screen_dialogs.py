@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS: a dialog of the office itself (Format > Character) follows a document opened in native full screen
 (mac_full_screen_dialogs). No office: the broadcaster, windows and timers are fakes; AppKit is mocked."""
 import unittest

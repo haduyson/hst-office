@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pre-submit lint of the LibreOffice patches a commit adds or changes (patches/libreoffice/*.patch against its
 merge base with the integration branch). The series is applied with `patch -p1`, so:
   - every `diff --git` header needs the a/ and b/ prefixes ("diff --git sw/x sw/x" makes -p1 strip the module

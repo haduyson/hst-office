@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The dispatcher's build train step (once per tick, under train.lock). In order:
   1. trains being merged: merge (deterministic), push train/<prefix>NNN, submit one job per platform (the Linux job
      also runs the train's test set: train_tests + the tests the members declared, see train_test_set);

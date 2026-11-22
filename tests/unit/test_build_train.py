@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build train rules (scripts/build_infra/queue_train.py) and its git layer (queue_train_git.py) on a scratch
 origin: start rule, member selection by LibreOffice files, job outcomes, failure attribution (patch, compile,
 single, bisect), union merges of series/vi-overrides, conflicts, deterministic merges and the push/delete guards."""

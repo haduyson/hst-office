@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GPG signing of the integrator's Linux release builds, on the dev server (the only place the packaging key lives).
 
 An integrator Linux job (not a train build, not a train confirmation build) whose output has an .rpm is signed

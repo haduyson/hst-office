@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-contextual-tab-stays-on-row.patch: a short tab row leaves off plain tabs before the contextual tab."""
 import unittest
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """SSH transport to a remote Linux build host (config `linux_remote_hosts`) and its liveness state.
 
 Every call is bounded: ssh runs with BatchMode, a pinned known_hosts file (StrictHostKeyChecking=yes), a 10 s

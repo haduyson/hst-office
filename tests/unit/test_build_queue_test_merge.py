@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Test runs of one commit share one build: a `submit --test` that matches a queued, not yet started test job of the
 same commit, platform, package and modules joins it (union of the test lists); collapse_test_jobs folds jobs that
 are already queued; `wait` on a folded job follows it; the dispatcher freezes a job's test list when it starts it

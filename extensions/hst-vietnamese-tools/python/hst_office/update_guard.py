@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up guard of "Cập nhật ngay" (Jobs.xcu, OnStartApp): no second office while the updater installs, and no
 office that keeps running inside an app bundle replaced under it.
 

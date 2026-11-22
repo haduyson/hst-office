@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A scratch git world for the build train tests: a bare `origin` with an integration branch (series, patches,
 vi-overrides, docs) and helpers to push member branches; plus a local clone that plays the queue's repository."""
 import json

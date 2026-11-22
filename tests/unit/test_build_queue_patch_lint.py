@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pre-submit patch lint (scripts/build_infra/queue_patch_lint.py): `diff --git` headers need a/ and b/, `---`/`+++`
 paths must land under a LibreOffice module with `patch -p1`, hunk content that looks like a header is ignored;
 `submit` and `train add` refuse such a commit, the integrator can force it."""

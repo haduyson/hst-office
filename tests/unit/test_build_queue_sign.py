@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Signing of integrator Linux release builds (scripts/build_infra/queue_sign.py) with a throwaway packaging key:
 the commit's own sign-linux-packages.sh signs a real .rpm, `rpm -K` must then report digests signatures OK, the
 secret never reaches the job log, and a commit whose public key is not the keyring's key fails the job."""

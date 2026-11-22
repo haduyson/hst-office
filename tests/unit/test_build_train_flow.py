@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build train flow (scripts/build_infra/queue_train_tick.py + queue_train_ops.py) on a scratch origin, with the
 build results written by the test: pass, patch attribution with carry-over, two-round bisect, retries without
 blame, merge conflicts, a broken base, removal, restart idempotency and the deletion of old train branches."""

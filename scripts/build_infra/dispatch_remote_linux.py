@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Remote Linux build host of the dispatcher (config `linux_remote_hosts`, e.g. VM103): the same local-build.sh,
 build-slots.py, base chroot, ccache and tarballs as the dev server, run over SSH.
 

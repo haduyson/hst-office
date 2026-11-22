@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The start-up update check does not wait for an unanswered start-up question (e.g. "Mở tài liệu văn phòng bằng HST
 Office?"): it starts before the questions on its worker thread, and prompting() tells its pop-up to wait while they
 run, so the two never cover each other."""

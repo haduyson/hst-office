@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Output retention of the build queue (rules: queue_rules.retention_victims) and pins that exempt a job from it.
 """
 import os

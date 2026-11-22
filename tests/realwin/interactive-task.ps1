@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Run one command line in the logged-on console user's desktop session through a temporary scheduled task
 # (SSH runs in session 0 without a desktop). The command runs hidden (wscript wrapper, no console window on the
 # user's screen). Before it starts, the console must have had no keyboard/mouse input for IdleMinutes, measured

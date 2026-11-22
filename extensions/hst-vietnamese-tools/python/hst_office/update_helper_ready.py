@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS: the office stays open, behind a progress message, while the helper checks and copies the new app, and quits
 only once the helper reports that it is ready (update-ready, written by update_helper_scripts RUN).
 

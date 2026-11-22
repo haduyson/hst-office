@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Seed a remote Linux build host (after remote-build-host-setup.sh) from the dev server's build root, so its builds
 # use the same base chroot (same image digest and deps marker), external tarballs, pinned tarballs and a warm tree.
 #   sudo scripts/linux/remote-build-host-seed.sh --host vm103 [--from-slot N] [--slots 2]

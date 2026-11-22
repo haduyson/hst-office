@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """SSH/SCP to the owner's LAN Windows test PCs. Everything lives under C:\\hst-test (D:\\hst-test for big files).
 
 PowerShell is always sent as a script file and run with -File: `-Command -` on stdin silently drops multi-line

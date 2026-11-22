@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The build train's test set (scripts/build_infra/queue_train_judge.py, queue_train_tick.py): the Linux build of a
 train runs train_tests plus the tests members declared and still packages; a branch passes only when builds and
 tests pass; failing tests run on the base first and a target failing there too is never blamed; a new failure is

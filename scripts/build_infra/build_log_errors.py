@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The lines that explain a failed build, with context: compiler/linker errors, `make: *** ... Error N`, fatal
 errors and gla11y FATAL lines. A build log's tail usually shows only the warnings of the jobs that finished after
 the failing one, so local-build.sh prints this block before the tail and `build-queue.sh wait|status` show it too.

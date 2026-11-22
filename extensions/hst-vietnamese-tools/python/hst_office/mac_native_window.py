@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS only: what AppKit knows about an office window (its NSWindow), read through the Objective-C runtime.
 
 The office's UNO API cannot tell whether a window is in native full screen (the green button): XTopWindow3.FullScreen

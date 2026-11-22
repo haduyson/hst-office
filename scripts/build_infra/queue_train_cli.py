@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """`build-queue.sh train ...`: the build train from the command line.
 
   train add <branch> [--platform linux|windows|both] [--test 'T1 T2']

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
-# Copyright (c) HASON TECH. HST Office.
+# Copyright (C) 2026 HASON TECH
 """Accessible objects of a gtk3 window with a native menu bar report their real screen position.
 
 Usage: python3 tests/runtime/check-gtk3-a11y-offset.py --instdir DIR [--display :396] [--out DIR]

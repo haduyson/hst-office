@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Early warning when the dev server's /data (the disk of the build queue) runs low.
 
 Below data_warn_free_gib (25) the dispatcher writes a warning to its journal and alerts.log at most once an hour, and

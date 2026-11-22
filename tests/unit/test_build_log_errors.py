@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A failed build keeps its real error lines (scripts/build_infra/build_log_errors.py): compiler/linker errors and
 make's `Error N` with context, not only the tail of warnings; local-build.sh prints the block before the tail, and
 `build-queue.sh wait|status` show it for a failed job (also for older logs without the block)."""

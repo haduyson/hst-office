@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Remote Linux build host (scripts/build_infra/dispatch_remote_linux.py, dispatch_linux_pool.py) with a fake SSH
 transport: slot choice, the bounded start command (slice, job caps, environment), log streaming, copying the
 output back, offline detection with requeue to the dev server, leftover units on reconnect, the job timeout and

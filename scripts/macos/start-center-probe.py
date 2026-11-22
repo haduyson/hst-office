@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Drive the HST Office Start Center on macOS over UNO (run with the bundled Python).
 
   start-center-probe.py seed <out-dir>        store the sample documents and make them the recent ones

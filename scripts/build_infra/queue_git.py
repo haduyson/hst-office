@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Read-only git queries of the build queue (submit checks, retention, trains) on the queue's repository.
 
 Every query fails soft: it returns None when git cannot answer (unknown object, no network), so a check that

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Judging finished train builds (mixed into queue_train_tick.TrainStep, which supplies store, core, cfg, ts,
 branches, now and the helpers event/release/decide/new_record/next_number/build):
   pass (every build, and every test of the Linux build) -> members passed; cancelled/infra -> members retried without

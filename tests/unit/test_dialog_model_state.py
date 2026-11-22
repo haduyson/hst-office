@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A dialog moved onto a new full screen document (macOS) keeps what the user entered: its on_ready hook runs again
 to hook the new controls, and every control value the hook changed is put back (dialog_model_state). Before, the
 citation entry dialog filled its fields with the edited item again and the typing was lost. No office: control models

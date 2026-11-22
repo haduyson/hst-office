@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build queue rules for agents: retention of failed/merged/old outputs with pins and active-train protection,
 superseding a branch's queued job, refusing tests/docs-only commits (--force for the integrator) and the
 priority cap (scripts/build_infra/queue_rules.py, queue_ops.py, queue_retention.py)."""

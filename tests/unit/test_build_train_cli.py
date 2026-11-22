@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build train end to end through `python3 -I scripts/build-queue.py` and real dispatcher iterations
 (`dispatch --once`) on a scratch origin (HST_QUEUE_REPO, no build slots, no Windows hosts): train add/status/
 start/remove/wait, the train branch pushed to origin, its jobs, and the result after the builds finish."""

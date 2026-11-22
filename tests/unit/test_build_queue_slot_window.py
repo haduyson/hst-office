@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build windows of Windows slots (scripts/build_infra/slot_window.py + dispatch_windows.WindowsRunner): HST1 takes
 new jobs Mon-Sat 18:00-07:30 and all Sunday (Saturday 18:00 to Monday 07:30, Asia/Saigon); a job still running when
 the window closes is stopped and requeued, and a host not idle by 08:00 raises an alert."""

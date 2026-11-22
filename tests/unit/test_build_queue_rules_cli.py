@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """End to end through `python3 -I scripts/build-queue.py` on a scratch git origin (HST_QUEUE_REPO): priority cap,
 superseding, the tests/docs-only refusal and its integrator override, pin/unpin and `retention`."""
 import json

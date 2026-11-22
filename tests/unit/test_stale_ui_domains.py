@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Slot tree sync: an instdir dialog whose root <interface domain="hst-..."> came from a tree that delivered .ui files
 from hst/l10n/ui is dropped when the current tree no longer delivers it that way, so make copies the plain dialog
 again. The copy rule depends only on the source file, which is older than the stale copy, so make alone never does."""

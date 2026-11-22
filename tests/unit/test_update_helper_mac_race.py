@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The macOS updater against a user who opens HST Office again while it installs: the checks and the copy run while
 the office is still open, the swap waits for (or refuses) an office running from the app, the update lock goes before
 the relaunch, and an old office still running is reported instead of being brought to the front."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure rules of the build train (unit tested without git): when a train starts, which ready branches ride it,
 how a finished train build is judged, and which branch a failure is attributed to.
 

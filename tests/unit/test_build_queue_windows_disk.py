@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Disk shortage on build hosts: it counts as an infrastructure failure (requeue, and no train blame), a Windows
 slot whose drive is below windows_min_free_gib gets no job, and below windows_warn_free_gib the dispatcher writes a
 warning with the largest D:\\hst-test folders (read only) that `list` and `disk-report` show."""

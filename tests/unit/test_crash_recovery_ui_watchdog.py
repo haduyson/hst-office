@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The crash handler ends even when the recovery UI cannot run (hst-crash-recovery-ui-watchdog.patch).
 
 Owner report (macOS 1.0.2 -> 1.0.3): an office opened while the updater replaced the app bundle loaded a second

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What a dialog's control models hold (text, selection, check state, enabled, labels), kept across a re-run hook.
 
 A dialog moved onto another window (macOS native full screen, dialogs.Dialog._move_to) gets new controls on the same

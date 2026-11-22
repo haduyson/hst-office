@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Slot lock and clean (`build-queue.sh slot ...`, scripts/build_infra/slot_control.py), the dispatcher killing the
 make scopes of a cancelled Linux job that keeps running, and the early warning for a low /data
 (scripts/build_infra/data_disk.py)."""

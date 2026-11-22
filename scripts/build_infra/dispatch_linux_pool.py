@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """All Linux build slots of the dispatcher: the dev server's own (LinuxRunner) first, then each remote build host
 of `linux_remote_hosts` (RemoteLinuxRunner). A job's `host` says which runner owns it ("local" or the host name);
 a job requeued because its host failed carries avoid_hosts and never goes back there.

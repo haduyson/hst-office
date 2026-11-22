@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Locking and cleaning one build slot (`build-queue.sh slot ...`), without draining its whole host.
 
 State lives in <queue root>/slot-control.json, keyed by the slot id a job records in job["slot"]:

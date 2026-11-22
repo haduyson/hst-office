@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS only: a dialog of the office itself (Format > Character, Tools > Options...) follows a document opened in
 native full screen instead of staying in the Space the user left.
 

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Native full screen of an office window read from AppKit (mac_native_window), without macOS: the Objective-C calls
 are replaced by a fake that answers like [[view window] styleMask]."""
 import sys

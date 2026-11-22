@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build train commands of agents and the integrator: `train add|remove|start|wait` (the dispatcher's train step is
 queue_train_tick.py). A branch is a candidate until a train result decides it:
   ready -> in-train -> passed (its train built on every platform) | ejected (blamed; confirmation build queued)

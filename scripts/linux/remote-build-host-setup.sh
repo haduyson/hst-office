@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # One-time setup of a REMOTE Linux build host for the build queue (dispatch_remote_linux.py), run ON that host as
 # root (the dev server streams it: `ssh root@host bash -s -- [options] < remote-build-host-setup.sh`).
 #   --mem-gib N     MemoryMax of hst-build.slice, all builds together (default 24)

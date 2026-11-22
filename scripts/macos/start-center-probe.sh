@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Screenshot the HST Office Start Center of a dmg on a macOS GUI runner at several window sizes.
 #   start-center-probe.sh <HSTOffice_*.dmg> <out-dir> [sizes]
 # sizes: comma-separated WxH in points and/or "maximized" (default below). A first headless start stores five
