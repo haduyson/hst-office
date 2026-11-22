@@ -10,6 +10,7 @@
 #   shipped-root  shipped code, /Applications copy owned by root (administrator password path)
 #   branch-root   branch code, root-owned copy
 # KEEP_WELCOME=1: the welcome dialog opens at the start and stays open. CLOSE_WELCOME=1: closed before the update.
+# RACE=1: the app is opened again as soon as the office has quit (a user clicking the Dock icon during the update).
 # PRETEND=<release>: reported to the update check as the running release (an up-to-date app is offered the target).
 set -uo pipefail
 [ $# -eq 4 ] || { echo "usage: $0 <installed.dmg> <target.dmg> <scenario> <out-dir>" >&2; exit 64; }
@@ -57,6 +58,7 @@ args=(--app "$app" --profile "$profile" --out "$out/$scenario.json" --pipe "hste
 [ -n "$code" ] && args+=(--code "$code")
 [ -n "$document" ] && args+=(--document "$document")
 [ -n "${CLOSE_WELCOME:-}" ] && args+=(--close-welcome)
+[ -n "${RACE:-}" ] && args+=(--race)
 PYTHONDONTWRITEBYTECODE=1 URE_BOOTSTRAP="vnd.sun.star.pathname:$drv/Contents/Resources/fundamentalrc" \
   PYTHONPATH="$drv/Contents/Resources:$pyhome" perl -e 'alarm 900; exec @ARGV' "$py" "$here/update-e2e-probe.py" "${args[@]}" \
   >"$out/$scenario.log" 2>&1

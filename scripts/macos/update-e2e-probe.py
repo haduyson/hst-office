@@ -2,7 +2,7 @@
 """Drive "Cập nhật ngay" end to end inside a GUI HST Office on macOS (evidence probe, CI only).
 
 update-e2e-probe.py --app <bundle> --profile <dir> --out <json> --pipe <name> [--code <python dir>] [--pretend R]
-                    [--document <file>] [--watch S]
+                    [--document <file>] [--watch S] [--race]
 Run with a bundled office Python (URE_BOOTSTRAP / PYTHONPATH of a separate driver copy of the app). The office starts
 like a user's (LaunchServices `open`, GUI) with a UNO pipe and a document. A user Python script placed in the probe
 profile dispatches org.hst.office.update:Install on the document's frame from the office's main thread, as the infobar
@@ -10,7 +10,9 @@ button does: the published signed manifest is fetched, the installer already pla
 is verified and reused (no download), and the real "Cập nhật ngay" question is answered by a System Events click.
 --code makes the office import hst_office from that directory (this checkout) instead of its own bundle; --pretend
 reports that release to the update check (so that an up-to-date build is offered the published release).
-The driver then watches the office process, the helper's update.log, the bundle on disk and the relaunched office."""
+The driver then watches the office process, the helper's update.log, the bundle on disk and the relaunched office.
+--race opens the app again (LaunchServices, like a click on its Dock icon) as soon as the office has quit, while the
+helper still works: the helper must not replace the bundle under that copy."""
 import argparse
 import json
 import os
@@ -89,6 +91,7 @@ def main():
     p.add_argument("--document", default="")
     p.add_argument("--watch", type=int, default=300)
     p.add_argument("--close-welcome", action="store_true")
+    p.add_argument("--race", action="store_true")
     a = p.parse_args()
     import uno
     report = {"app": a.app, "version_before": version(a.app), "inode_before": os.stat(a.app).st_ino,
@@ -141,8 +144,13 @@ def main():
                     break
         if exited is None and not alive(pid):
             exited = round(time.monotonic() - started, 1)
-        if exited is not None and time.monotonic() - started > exited + 90:
-            break  # the helper had 90 s after the exit to swap and relaunch
+            if a.race:
+                subprocess.run(["open", "-a", a.app], check=False, env=clean_env())
+                report["race_opened_after_s"] = round(time.monotonic() - started, 1)
+                report["race_processes"] = office_processes()
+        # the helper had 90 s after the exit to swap and relaunch; with --race it may first wait 60 s for that copy
+        if exited is not None and time.monotonic() - started > exited + (150 if a.race else 90):
+            break
         time.sleep(1)
     subprocess.run(["screencapture", "-x", a.out + ".png"], check=False)
     report["office_exited_after_s"] = exited
