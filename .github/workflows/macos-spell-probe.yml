@@ -37,7 +37,8 @@ jobs:
           set -eu
           for tag in v1.0.2 v1.0.3; do
             mkdir -p "$RUNNER_TEMP/dmg/$tag"
-            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg/$tag"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg/$tag" \
+              || echo "no $tag dmg visible to this token (draft release)"
           done
           find "$RUNNER_TEMP/dmg" -name '*.dmg'
       - name: Click a picture in Writer with the real mouse
@@ -46,6 +47,7 @@ jobs:
           set -eu
           for tag in v1.0.3 v1.0.2; do
             dmg=$(find "$RUNNER_TEMP/dmg/$tag" -name '*.dmg' -print -quit)
+            [ -n "$dmg" ] || continue
             bash scripts/macos/image-select-probe.sh "$dmg" "$RUNNER_TEMP/spellprobe" "$tag" || echo "probe $tag exit $?"
           done
           for f in "$RUNNER_TEMP"/spellprobe/v*.json; do echo "$f"; cat "$f"; done | tee -a "$GITHUB_STEP_SUMMARY"
