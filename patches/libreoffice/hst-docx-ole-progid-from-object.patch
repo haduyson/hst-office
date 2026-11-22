@@ -1,0 +1,174 @@
+HST Office: a .docx export writes an OLE object's ProgID from the interop grab bag the import
+filled, keyed by the object's name. Objects that come back from Undo (converted MathType equations
+after Ctrl+Z, a deleted object restored) have new names, so they were written with ProgID="" and
+Word and MathType no longer recognised them as MathType equations. When the grab bag has no
+ProgID for an object, it is now read from the object's own stored compound file (its \1CompObj
+stream; sw/source/filter/ww8/hst/hstoleprogid.cxx).
+Test: CppunitTest_sw_uibase_uiview, testUndoneDeletionKeepsMathTypeProgID.
+
+License: the upstream files remain under their original license (MPL-2.0).
+
+--- a/sw/Library_msword.mk
++++ b/sw/Library_msword.mk
+@@ -89,6 +89,7 @@
+     sw/source/filter/ww8/docxexportfilter \
+     sw/source/filter/ww8/hst/hstpictureadjust \
+     sw/source/filter/ww8/hst/hstwordmergeexport \
++    sw/source/filter/ww8/hst/hstoleprogid \
+     sw/source/filter/ww8/docxsdrexport \
+     sw/source/filter/ww8/docxtableexport \
+     sw/source/filter/ww8/docxtablestyleexport \
+--- a/sw/source/filter/ww8/docxattributeoutput.cxx
++++ b/sw/source/filter/ww8/docxattributeoutput.cxx
+@@ -21,6 +21,7 @@
+ #include "docxattributeoutput.hxx"
+ #include "hst/hstpictureadjust.hxx"
+ #include "hst/hstwordmergeexport.hxx"
++#include "hst/hstoleprogid.hxx"
+ #include <hstpageart.hxx>
+ #include "docxhelper.hxx"
+ #include "docxsdrexport.hxx"
+@@ -6302,6 +6303,9 @@
+             rObjectInteropAttribute.Value >>= sProgID;
+         }
+     }
++    // HST Office: an object back from Undo has a new name; its own data still names it
++    if (sProgID.isEmpty())
++        sProgID = hst::ole::StoredProgID(xObj);
+ 
+     // write embedded file
+     OString sId = m_rExport.WriteOLEObject(aObject, sProgID);
+--- a/sw/source/filter/ww8/hst/hstoleprogid.cxx
++++ b/sw/source/filter/ww8/hst/hstoleprogid.cxx
+@@ -0,0 +1,103 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "hstoleprogid.hxx"
++
++#include <com/sun/star/container/XChild.hpp>
++#include <com/sun/star/document/XStorageBasedDocument.hpp>
++#include <com/sun/star/embed/XEmbedPersist.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <rtl/strbuf.hxx>
++#include <sot/storage.hxx>
++#include <tools/stream.hxx>
++#include <unotools/ucbstreamhelper.hxx>
++
++#include <memory>
++
++using namespace css;
++
++namespace hst::ole
++{
++namespace
++{
++/// A length-prefixed ANSI string of the CompObj stream ([MS-OLEDS] 2.1.4), skipped
++bool SkipString(SvStream& rStream)
++{
++    sal_uInt32 nLength = 0;
++    rStream.ReadUInt32(nLength);
++    if (!rStream.good() || nLength > rStream.remainingSize())
++        return false;
++    rStream.SeekRel(nLength);
++    return rStream.good();
++}
++
++/// The ProgID field of a CompObj stream ([MS-OLEDS] 2.3.8): header (28 bytes), user type,
++/// clipboard format (a string, a 32-bit format after a 0xFFFFFFFF/0xFFFFFFFE marker, or none),
++/// then the ProgID as a length-prefixed ANSI string.
++OUString ReadProgID(SvStream& rStream)
++{
++    rStream.Seek(28);
++    if (!SkipString(rStream))
++        return OUString();
++    sal_uInt32 nMarker = 0;
++    rStream.ReadUInt32(nMarker);
++    if (nMarker == 0xffffffff || nMarker == 0xfffffffe)
++        rStream.SeekRel(4);
++    else if (nMarker > 0)
++        rStream.SeekRel(nMarker);
++    sal_uInt32 nLength = 0;
++    rStream.ReadUInt32(nLength);
++    if (!rStream.good() || nLength < 2 || nLength > 40 || nLength > rStream.remainingSize())
++        return OUString();
++    OStringBuffer aProgID;
++    for (sal_uInt32 n = 0; n < nLength; ++n)
++    {
++        char c = 0;
++        rStream.ReadChar(c);
++        if (c == 0)
++            break;
++        if (c < 0x21 || c > 0x7e) // a ProgID is a short ASCII name
++            return OUString();
++        aProgID.append(c);
++    }
++    return OStringToOUString(aProgID, RTL_TEXTENCODING_ASCII_US);
++}
++}
++
++OUString StoredProgID(const uno::Reference<embed::XEmbeddedObject>& xObject)
++{
++    try
++    {
++        uno::Reference<document::XStorageBasedDocument> xParent(
++            uno::Reference<container::XChild>(xObject, uno::UNO_QUERY_THROW)->getParent(),
++            uno::UNO_QUERY_THROW);
++        uno::Reference<embed::XStorage> xStorage = xParent->getDocumentStorage();
++        const OUString aEntry
++            = uno::Reference<embed::XEmbedPersist>(xObject, uno::UNO_QUERY_THROW)->getEntryName();
++        if (!xStorage.is() || !xStorage->hasByName(aEntry) || !xStorage->isStreamElement(aEntry))
++            return OUString(); // an own (ODF) object has no OLE ProgID
++        std::unique_ptr<SvStream> pStream(utl::UcbStreamHelper::CreateStream(
++            xStorage->cloneStreamElement(aEntry)->getInputStream()));
++        if (!pStream || !SotStorage::IsStorageFile(pStream.get()))
++            return OUString();
++        rtl::Reference<SotStorage> xOle = new SotStorage(*pStream);
++        static constexpr OUString COMPOBJ = u"\001CompObj"_ustr;
++        if (xOle->GetError() || !xOle->IsStream(COMPOBJ))
++            return OUString();
++        rtl::Reference<SotStorageStream> xCompObj = xOle->OpenSotStream(COMPOBJ, StreamMode::READ);
++        return xCompObj.is() ? ReadProgID(*xCompObj) : OUString();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sw.ww8", "hst::ole::StoredProgID");
++        return OUString();
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/filter/ww8/hst/hstoleprogid.hxx
++++ b/sw/source/filter/ww8/hst/hstoleprogid.hxx
+@@ -0,0 +1,25 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <com/sun/star/embed/XEmbeddedObject.hpp>
++#include <rtl/ustring.hxx>
++
++namespace hst::ole
++{
++/** The ProgID an OLE object's own data names ("Equation.DSMT4" for MathType), "" if none.
++
++    A .docx export takes an object's ProgID from what the import remembered under the object's
++    name. An object that comes back from Undo (a converted MathType equation, a deleted and
++    restored object) has a new name, so it was written with ProgID="" and Word and MathType no
++    longer took it for a MathType equation. The stored compound file still says what it is: its
++    "\1CompObj" stream carries the ProgID after the user type and the clipboard format. */
++OUString StoredProgID(const css::uno::Reference<css::embed::XEmbeddedObject>& xObject);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
