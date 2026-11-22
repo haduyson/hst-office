@@ -15,11 +15,9 @@ user is told, a waiter opens the app again once this office has quit (mac_move_s
 A reopen for the same versions is not repeated within REOPEN_PAUSE, so a broken bundle cannot start a loop.
 Every file stays on this machine.
 """
-import json
 import os
 import platform
 import re
-import stat
 import time
 
 import unohelper
@@ -27,90 +25,16 @@ from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
 from . import diag_log
+# The lock and reopen files, and the local process queries (ctypes), live in their own modules; re-exported here
+# because update_install and the tests use them as update_guard.*.
+from .update_guard_files import (LOCK_NAME, REOPEN_PAUSE, read_lock, remove_lock, reopen_due,  # noqa: F401
+                                 write_lock)
+from .update_guard_process import own_executable, pid_alive  # noqa: F401
 
 JOB_NAME = "org.hst.office.vi.UpdateGuardJob"
-LOCK_NAME = "updating.lock"  # removed by the helper (update_helper_scripts.SETUP / update_helper_scripts_windows)
-REOPEN_NAME = "version-reopen.json"
-MAX_SIZE = 1024
 MAX_AGE = 45 * 60  # the helper waits up to 30 minutes for the office to quit, then checks, swaps and relaunches
 SPAWN_GRACE = 120  # a lock without a helper yet: the office is starting it
-REOPEN_PAUSE = 10 * 60
 MOVED_ASIDE = ".app.hst-old/"  # the swap renames the old bundle to <name>.app.hst-old (update_helper_scripts_mac)
-
-
-def _write_json(path, record):
-    temp = "%s.%d.tmp" % (path, os.getpid())
-    with open(temp, "w", encoding="ascii") as handle:
-        json.dump(record, handle)
-    os.replace(temp, path)
-
-
-def _read_json(path):
-    try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(descriptor, "rb") as handle:
-            raw = handle.read(MAX_SIZE + 1) if stat.S_ISREG(os.fstat(handle.fileno()).st_mode) else b""
-        record = json.loads(raw.decode("ascii")) if 0 < len(raw) <= MAX_SIZE else None
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError):
-        record = None
-    return record if isinstance(record, dict) else {}
-
-
-def _positive(value):
-    return type(value) is int and 0 < value <= 2147483647
-
-
-def write_lock(cache, helper=0, office=None, now=None):
-    """Write updating.lock (atomic rename); helper 0 means "being started"."""
-    if not (helper == 0 or _positive(helper)):
-        raise ValueError("helper must be a process ID or 0")
-    os.makedirs(cache, mode=0o700, exist_ok=True)
-    record = {"schema": 1, "helper": helper, "office": os.getpid() if office is None else office,
-              "time": int(time.time() if now is None else now)}
-    _write_json(os.path.join(cache, LOCK_NAME), record)
-
-
-def remove_lock(cache):
-    try:
-        os.unlink(os.path.join(cache, LOCK_NAME))
-    except FileNotFoundError:
-        pass
-
-
-def read_lock(cache):
-    """The lock as a dict, None when there is none, {} when it is not valid."""
-    record = _read_json(os.path.join(cache, LOCK_NAME))
-    if not record:
-        return record
-    valid = record.get("schema") == 1 and (record.get("helper") == 0 or _positive(record.get("helper"))) \
-        and _positive(record.get("office")) and type(record.get("time")) is int
-    return record if valid else {}
-
-
-def pid_alive(pid, system=None):
-    """True while process `pid` exists. Windows: never os.kill, which would end the process."""
-    if (system or platform.system()) == "Windows":
-        import ctypes
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not handle:
-            return ctypes.get_last_error() == 5  # access denied: it exists
-        try:
-            code = ctypes.c_ulong()
-            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
-        finally:
-            kernel32.CloseHandle(handle)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return True
 
 
 def update_in_progress(cache, now=None, alive=pid_alive):
@@ -147,18 +71,6 @@ def bundle_version(bundle):
     return value if isinstance(value, str) else None
 
 
-def own_executable():
-    """macOS: the path the kernel now gives this process's executable (it follows a rename), or None."""
-    try:
-        import ctypes
-        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
-        buffer = ctypes.create_string_buffer(4096)
-        size = libc.proc_pidpath(os.getpid(), buffer, ctypes.sizeof(buffer))
-        return buffer.raw[:size].decode("utf-8", "replace") if size > 0 else None
-    except (OSError, AttributeError):
-        return None
-
-
 def replaced_bundle(bundle, release, executable=None):
     """The version now on disk ("" when unknown) when the bundle this office runs from was replaced; else None."""
     disk = bundle_version(bundle)
@@ -168,22 +80,6 @@ def replaced_bundle(bundle, release, executable=None):
     if disk and running and disk != running:
         return disk
     return None
-
-
-def reopen_due(cache, running, disk, now=None):
-    """True unless this office already reopened for the same versions within REOPEN_PAUSE; records the attempt."""
-    now = int(time.time() if now is None else now)
-    path = os.path.join(cache, REOPEN_NAME)
-    last = _read_json(path) or {}
-    if last.get("running") == running and last.get("disk") == disk and type(last.get("time")) is int \
-            and 0 <= now - last["time"] < REOPEN_PAUSE:
-        return False
-    try:
-        os.makedirs(cache, mode=0o700, exist_ok=True)
-        _write_json(path, {"running": running, "disk": disk, "time": now})
-    except OSError:
-        diag_log.exception("update_guard")
-    return True
 
 
 def _tell(ctx, message):
