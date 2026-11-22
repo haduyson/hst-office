@@ -68,7 +68,7 @@ Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên 
 | Chỉ số dưới | Ctrl+= | Cmd+= | Ctrl+Shift+B | Chỉ số dưới (thêm) | đổi | Ctrl+Shift+B vẫn dùng được. Trang Word hiện ghi chỉ số dưới là Ctrl+Shift+Minus; HST giữ Ctrl+Shift+- là gạch nối không ngắt |
 | Chèn trường ngày / giờ | Alt+Shift+D / T | Control+Shift+D / T | không có | Ngày / Giờ (thay đổi được) | đổi | |
 | Thụt lề đoạn | Ctrl+M | Control+Shift+M | Xóa định dạng trực tiếp | Tăng thụt lề | đổi | **Xóa định dạng trực tiếp** chuyển sang Ctrl+Space (macOS: Control+M như cũ) |
-| Bỏ thụt lề | Ctrl+Shift+M | Cmd+Shift+M | Chế độ sửa (toàn cục) | Giảm thụt lề | đổi | **Chế độ sửa** còn ở menu Sửa, thẻ Xem (KeyTip Alt, W, F) và Tệp tin ▸ Thông tin |
+| Bỏ thụt lề | Ctrl+Shift+M | Cmd+Shift+M | Chế độ sửa (toàn cục) | Giảm thụt lề | đổi | **Chế độ sửa** còn ở menu Sửa và Tệp tin ▸ Thông tin; nút **Chỉ đọc** ở thẻ Xem (KeyTip Alt, W, F) |
 | Thụt lề treo | Ctrl+T | Cmd+T | macOS Cmd+T = Kiểu dáng | Thụt lề treo | đổi | **Kiểu dáng** (macOS) vẫn có F11 |
 | Đánh dấu trích dẫn (Mark Citation, mục lục trích dẫn pháp lý) | Alt+Shift+I | Cmd+Option+Shift+I | không có | Chèn lại trích dẫn | khác | HST: gõ `[3` hoặc `[3, tr. 15` rồi nhấn phím để trích lại nguồn số 3 (không có ô đánh dấu trích dẫn pháp lý); macOS Option+Shift+I |
 
@@ -192,7 +192,7 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Writer | F4 | Thuộc tính hình ảnh | menu chuột phải |
 | Writer | F12 (Win/Linux) | Bật/tắt đánh số | ribbon, Định dạng ▸ Dấu đầu dòng và đánh số |
 | Writer | Ctrl+M (Win/Linux) | Xóa định dạng trực tiếp | Ctrl+Space |
-| Writer | Ctrl+Shift+M | Chế độ sửa | menu Sửa, thẻ Xem, Tệp tin ▸ Thông tin |
+| Writer | Ctrl+Shift+M | Chế độ sửa | menu Sửa, Tệp tin ▸ Thông tin, nút Chỉ đọc ở thẻ Xem |
 | Writer | Cmd+T (macOS) | Kiểu dáng | F11 |
 | Sheets | Ctrl+R | Căn phải | ribbon |
 | Sheets | Ctrl+E (1.0.3) | Căn giữa | ribbon, Định dạng ô |

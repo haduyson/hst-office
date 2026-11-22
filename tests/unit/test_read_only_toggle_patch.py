@@ -3,7 +3,7 @@
 
 Offline checks of the patch text and the ribbon data: the edit mode switch reopens the file for writing, the title
 mark follows the UI state, the Info page button, the recovery question's default button, the Windows file dialog
-texts with their Vietnamese strings, the View tab button in Writer, Sheets and Slides, and the protection tooltips
+texts with their Vietnamese strings, the View tab's Chỉ đọc button in Writer, Sheets and Slides, and the protection tooltips
 of Sheets that say they are not the read-only mode. The behaviour itself: CppunitTest_sfx2_hst_autosave."""
 import json
 import os
@@ -35,8 +35,8 @@ class ReadOnlyTogglePatch(unittest.TestCase):
         self.assertIn("pNewSet->ClearItem( SID_DOC_READONLY );", code)
         self.assertIn("HstAutoSaveState().oOn = xOldObj->HstAutoSaveState().oOn", code)
         # a failed or cancelled switch (the locked-file question) leaves the document read only
-        failed = code.index("if ( rReq.GetSlot() == SID_EDITDOC && *oForEdit )")
-        self.assertIn("xOldObj->SetReadOnlyUI( true );", code[failed:failed + 120])
+        failed = code.index("SID_EDITDOC || rReq.GetSlot() == SID_READONLYDOC ) && *oForEdit )")
+        self.assertIn("xOldObj->SetReadOnlyUI( true );", code[failed:failed + 160])
 
     def test_title_mark_follows_the_ui(self):
         self.assertIn("pMedium->IsReadOnly()", removed(PATCH, "sfx2/source/doc/sfxbasemodel.cxx"))
@@ -78,11 +78,23 @@ class ReadOnlyTogglePatch(unittest.TestCase):
             if app["id"] == "draw":
                 self.assertNotEqual(first["k"], "EditDoc")
                 continue
-            self.assertEqual((first["k"], first["kind"], first.get("new")), ("EditDoc", "L", True), app["id"])
+            self.assertEqual((first["k"], first["kind"], first.get("new")), ("ReadOnlyDoc", "L", True), app["id"])
         v3 = read("patches", "libreoffice", "hst-ribbon-v3-ui.patch")
-        self.assertEqual(v3.count('+                              <object class="GtkToolButton" id="btnViewHstEditDoc">'), 3)
+        self.assertEqual(v3.count('+                              <object class="GtkToolButton" id="btnViewHstReadOnlyDoc">'), 3)
+        self.assertEqual(v3.count('+                                <property name="icon-name">cmd/lc_openreadonly.png</property>'), 3)
         keytips = json.loads(read("data", "ribbon", "keytips-office-parity.json"))
-        self.assertEqual(keytips["commands"]["swriter"]["ViewLabel"]["EditDoc"], ["F", "Read Mode"])
+        self.assertEqual(keytips["commands"]["swriter"]["ViewLabel"]["ReadOnlyDoc"], ["F", "Read Mode"])
+        tips = json.loads(read("data", "ribbon", "tooltip-descriptions.json"))["descriptions"]
+        self.assertTrue(tips[".uno:ReadOnlyDoc"]["vi"].endswith("."))
+
+    def test_view_tab_label_is_read_only(self):
+        # lit while the document is read only: .uno:ReadOnlyDoc with the short label "Read-Only" / "Chỉ đọc"
+        xcu = added(PATCH, "officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu")
+        self.assertIn('<prop oor:name="ContextLabel" oor:type="xs:string">', xcu)
+        self.assertIn('<value xml:lang="en-US">Read-Only</value>', xcu)
+        po = added(PATCH, "translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po")
+        self.assertIn("..uno:ReadOnlyDoc", po)
+        self.assertIn('msgid "Read-Only"\nmsgstr "Chỉ đọc"', po)
 
     def test_sheets_protection_is_not_read_only(self):
         patch = read("patches", "libreoffice", "hst-ribbon-ux-calc.patch")

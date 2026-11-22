@@ -9,7 +9,9 @@ HST Office: read-only mode both ways, and the texts around it.
 - sfx2 sfxbasemodel.cxx (SfxBaseModel::getTitle): "(read-only)" means the document cannot be edited now; a file with
   the read-only attribute that the user switched to editing (Save asks for another name) no longer carries it.
 - sfx2 Tệp tin > Thông tin (hstbackstage.ui, hstbackstagewindow.cxx): "Chuyển sang chỉ đọc" / "Chỉnh sửa tài liệu"
-  runs .uno:EditDoc; hidden for a document without a file. The View tab's "Chế độ sửa" is in hst-ribbon-v3-ui.patch.
+  runs .uno:EditDoc; hidden for a document without a file.
+- officecfg GenericCommands.xcu: .uno:ReadOnlyDoc gets the short label "Read-Only" ("Chỉ đọc") of the View tab's
+  button (hst-ribbon-v3-ui.patch), lit while the document is read only.
 - svx docrecovery.cxx (BrokenRecoveryDialog): asked after the user discarded the recovery, the default button is
   "Hủy" (Enter copies nothing into Documents); after a recovery with failed documents "Lưu" stays the default.
 - fpicker VistaFilePickerImpl.cxx: the Windows Open, Save As and folder dialogs get their title, OK button and
@@ -110,6 +112,18 @@ Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch
  
  #define STR_FILESAVE_AUTOEXTENSION                  NC_("STR_FILESAVE_AUTOEXTENSION", "Automatically adds the file extension to the end of the file name that corresponds to the selected file type.")
  #define STR_FILESAVE_SAVEWITHPASSWORD               NC_("STR_FILESAVE_SAVEWITHPASSWORD", "Protects the file with a password that must be entered before a user can open the file.")
+--- a/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
+@@ -3564,6 +3564,9 @@ bit 3 (0x8): #define UICOMMANDDESCRIPTION_PROPERTIES_TOGGLEBUTTON 8
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Read Only Mode</value>
+         </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Read-Only</value>
++        </prop>
+         <prop oor:name="TooltipLabel" oor:type="xs:string">
+           <value xml:lang="en-US">Toggle Read Only Mode</value>
+         </prop>
 --- a/sfx2/inc/backstage/hstbackstage.hrc
 +++ b/sfx2/inc/backstage/hstbackstage.hrc
 @@ -39,6 +39,9 @@
@@ -132,17 +146,18 @@ Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch
  #include <com/sun/star/script/XLibraryContainer.hpp>
  #include <com/sun/star/task/XInteractionAbort.hpp>
  #include <com/sun/star/task/XInteractionHandler.hpp>
-@@ -214,6 +215,25 @@ protected:
+@@ -214,6 +215,26 @@ protected:
          comphelper::dispatchCommand(u".uno:HstAutoSave"_ustr, xModel->getCurrentController()->getFrame(), {});
          Scheduler::ProcessEventsToIdle();
      }
 +
-+    /// the View tab's "Chế độ sửa" (.uno:EditDoc); a switch may reload the document into the same frame
-+    void switchEditMode()
++    /// "Chỉnh sửa tài liệu" (.uno:EditDoc: the info bar, File > Info) or the View tab's "Chỉ đọc" (.uno:ReadOnlyDoc);
++    /// both toggle, and a switch may reload the document into the same frame
++    void switchEditMode(const OUString& rCommand = u".uno:EditDoc"_ustr)
 +    {
 +        uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
 +        uno::Reference<frame::XFrame> xFrame = xModel->getCurrentController()->getFrame();
-+        comphelper::dispatchCommand(u".uno:EditDoc"_ustr, xFrame, {});
++        comphelper::dispatchCommand(rCommand, xFrame, {});
 +        Scheduler::ProcessEventsToIdle();
 +        mxComponent = xFrame->getController()->getModel();
 +    }
@@ -158,7 +173,7 @@ Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch
  };
  
  CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testDocxOpensWithAutoSaveOnAndSavesInPlace)
-@@ -356,6 +376,70 @@ CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testToggleIsPerSessionOnly)
+@@ -356,6 +377,71 @@ CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testToggleIsPerSessionOnly)
      CPPUNIT_ASSERT_EQUAL(std::string("true"), wantsAutoSave());
      CPPUNIT_ASSERT_EQUAL(std::string("on"), toggleState());
  }
@@ -195,9 +210,10 @@ Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch
 +    open(makeWriterFile(u"choice.docx", u"MS Word 2007 XML"_ustr));
 +    clickToggle(); // the user turns AutoSave off for this document
 +    CPPUNIT_ASSERT_EQUAL(std::string("off"), toggleState());
-+    switchEditMode(); // read only
++    switchEditMode(u".uno:ReadOnlyDoc"_ustr); // the View tab's "Chỉ đọc": read only
 +    CPPUNIT_ASSERT(isReadOnly());
-+    switchEditMode(); // editing again
++    CPPUNIT_ASSERT(titleSaysReadOnly());
++    switchEditMode(u".uno:ReadOnlyDoc"_ustr); // editing again
 +    CPPUNIT_ASSERT(!isReadOnly());
 +    CPPUNIT_ASSERT_EQUAL(std::string("off"), toggleState());
 +}
@@ -352,7 +368,7 @@ Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch
                      }
 +                    // HST Office: the switch to edit mode failed or was cancelled (e.g. in the question about a
 +                    // file locked by another user): the document stays read-only instead of an unlocked view
-+                    if ( rReq.GetSlot() == SID_EDITDOC && *oForEdit )
++                    if ( ( rReq.GetSlot() == SID_EDITDOC || rReq.GetSlot() == SID_READONLYDOC ) && *oForEdit )
 +                        xOldObj->SetReadOnlyUI( true );
                  }
                  else
@@ -441,9 +457,28 @@ Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch
 +msgctxt "STR_HST_FILEDLG_FOLDER"
 +msgid "~Folder:"
 +msgstr "~Thư mục:"
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -23867,6 +23867,16 @@ msgctxt ""
+ msgid "Toggle Read Only Mode"
+ msgstr ""
+ 
++#. hstRO
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:ReadOnlyDoc\n"
++"ContextLabel\n"
++"value.text"
++msgid "Read-Only"
++msgstr "Chỉ đọc"
++
+ #. BuuAR
+ #: GenericCommands.xcu
+ msgctxt ""
 --- a/translations/source/vi/sfx2/messages.po
 +++ b/translations/source/vi/sfx2/messages.po
-@@ -10540,6 +10540,12 @@ msgctxt "hstbackstage|infoupdate"
+@@ -10546,6 +10546,12 @@ msgctxt "hstbackstage|infoupdate"
  msgid "Update HST Office"
  msgstr "Cập nhật HST Office"
  
@@ -456,7 +491,7 @@ Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch
  #. hstBU
  #: sfx2/uiconfig/ui/hstbackstage.ui
  msgctxt "hstbackstage|infoupdatenote"
-@@ -10690,6 +10696,18 @@ msgctxt "STR_HST_BS_NOT_SAVED"
+@@ -10696,6 +10702,18 @@ msgctxt "STR_HST_BS_NOT_SAVED"
  msgid "Not saved yet"
  msgstr "Chưa lưu"
  

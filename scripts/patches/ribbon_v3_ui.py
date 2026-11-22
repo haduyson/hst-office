@@ -90,7 +90,7 @@ def new_unit(item, units, tab="Home"):
     """A command the 1.0.2 ribbon does not have ("new": an owner addition): a copy of the tool item of its neighbour
     ("clone") with its own command and ids (bxV3<id> toolbox, btn<tab>Hst<k> button, the tab as in the group id). An extension's protocol command
     (org.hst.office.vi:...) keeps its name and gets the item's label, tooltip and "icon", as the other HST extension
-    buttons of the ribbon; a .uno: command takes them from the command."""
+    buttons of the ribbon; a .uno: command takes them from the command, its image too unless the item names an "icon"."""
     model = next((u for u in units if u.key == item["clone"] and u.toolbox is not None), None)
     if model is None:
         raise KeyError(f"no tool item {item['clone']} to copy for {item['k']}")
@@ -111,6 +111,10 @@ def new_unit(item, units, tab="Home"):
         prop = ET.Element("property", name="label")
         prop.text = item["k"]
         anchor.addprevious(prop)
+        if item.get("icon"):  # a command without a 24 px image of its own (e.g. ReadOnlyDoc) names one
+            prop = ET.Element("property", name="icon-name")
+            prop.text = item["icon"]
+            anchor.addnext(prop)
     else:
         # as the other HST extension buttons of the ribbon: its own label, tooltip and image (no command label)
         for key, value in (("icon-name", item.get("icon")), ("label", item["t"]),
