@@ -98,7 +98,7 @@ def show_infobar(frame, release, installed):
             controller.removeInfobar(INFOBAR_ID)
         buttons = []
         actions = (("install", "Install"),) if can_install(uno.getComponentContext(), release) else ()
-        for key, cmd in actions + (("download", "Download"), ("notes", "Notes"), ("skip", "Skip")):
+        for key, cmd in actions + (("download", "Download"), ("notes", "Notes"), ("later", "Later"), ("skip", "Skip")):
             pair = uno.createUnoStruct("com.sun.star.beans.StringPair")
             pair.First, pair.Second = TEXT[key], PROTOCOL + cmd
             buttons.append(pair)
