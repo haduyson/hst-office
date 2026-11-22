@@ -124,7 +124,7 @@ TEST_TARGETS=()
 if [ -n "$TESTS" ]; then
   read -r -a TEST_TARGETS <<< "${TESTS//,/ }"
   for t in "${TEST_TARGETS[@]}"; do
-    [[ "$t" =~ ^((CppunitTest|PythonTest)_[A-Za-z0-9_]+|[a-z0-9_]+\.(check|unitcheck|slowcheck|subsequentcheck))$ ]] \
+    [[ "$t" =~ ^((CppunitTest|PythonTest)_[A-Za-z0-9][A-Za-z0-9_-]*|[a-z0-9_]+\.(check|unitcheck|slowcheck|subsequentcheck))$ ]] \
       || die "--test: '$t' is not a CppunitTest_*/PythonTest_* or <module>.check-style target"
   done
   [ "${#TEST_TARGETS[@]}" -gt 0 ] || die "--test needs at least one target"
