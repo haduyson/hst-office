@@ -29,26 +29,34 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Download the 1.0.2 and 1.0.3 dmgs
+      - name: Download the 1.0.3 dmg
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          for tag in v1.0.2 v1.0.3; do
+          for tag in v1.0.3; do
             mkdir -p "$RUNNER_TEMP/dmg/$tag"
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg/$tag" \
               || echo "no $tag dmg visible to this token (draft release)"
           done
           find "$RUNNER_TEMP/dmg" -name '*.dmg'
-      - name: Click a picture in Writer with the real mouse
+      - name: Click a picture in Writer with the real mouse on a 1440x900 Retina desktop
         shell: bash
         run: |
           set -eu
-          for tag in v1.0.3 v1.0.2; do
-            dmg=$(find "$RUNNER_TEMP/dmg/$tag" -name '*.dmg' -print -quit)
-            [ -n "$dmg" ] || continue
-            bash scripts/macos/image-select-probe.sh "$dmg" "$RUNNER_TEMP/spellprobe" "$tag" || echo "probe $tag exit $?"
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q pyobjc-framework-Cocoa==11.1 pyobjc-framework-Quartz==11.1 \
+            pyobjc-framework-libdispatch==11.1
+          mkdir -p "$RUNNER_TEMP/spellprobe"
+          "$RUNNER_TEMP/venv/bin/python" -c "import sys, time; sys.path.insert(0, 'tests/runtime/r1auto'); from mac_hidpi import create; print('virtual display', create(1440, 900), flush=True); time.sleep(2400)" \
+            >"$RUNNER_TEMP/spellprobe/hidpi.log" 2>&1 &
+          sleep 12
+          cat "$RUNNER_TEMP/spellprobe/hidpi.log"
+          dmg=$(find "$RUNNER_TEMP/dmg/v1.0.3" -name '*.dmg' -print -quit)
+          for win in 1440x870 1157x693; do
+            PROBE_WIN=$win PROBE_SCALE=2 bash scripts/macos/image-select-probe.sh "$dmg" "$RUNNER_TEMP/spellprobe" "v1.0.3-$win" \
+              || echo "probe $win exit $?"
           done
           for f in "$RUNNER_TEMP"/spellprobe/v*.json; do echo "$f"; cat "$f"; done | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload probe evidence
