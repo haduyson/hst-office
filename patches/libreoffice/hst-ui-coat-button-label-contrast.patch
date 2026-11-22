@@ -1,0 +1,199 @@
+HST Office: a push button's label stays readable on the coat's fill (WCAG AA) in every state, light and dark,
+on every platform: the Save button of the "Save Document?" dialog had white text on a near-white fill on macOS.
+
+- The coat fills every push button with the light (dark) control colour and marks a default button by its
+  accent border only, but the label is drawn by PushButton in the colour the platform chose for its own bezel.
+  macOS (vcl/osx/salframe.cxx) gives a default button alternateSelectedControlTextColor (white) because its
+  native default bezel is the accent: white on #F5F8FC (1.05:1). Before Big Sur it does the same for a
+  pressed button.
+- hst::coat::ReadablePushButtonText (coat-buttons.cxx): where the coat draws, the platform's label colour is
+  kept when it reads (4.5:1) on the coat's fill for the state (resting, hover, pressed) and replaced by the
+  palette's text colour otherwise; one call in PushButton::ImplDrawPushButtonContent, not for buttons with
+  their own foreground or background colour. No colour, shape or size of the coat changes.
+- gtk3: a default button's label (not a primary action's, which keeps the accent and its ink) takes the
+  palette's text colour, so a theme's light label for its own coloured default fill cannot vanish on the
+  coat's fill.
+- Test: CoatTest::testPushButtonLabelReadable.
+---
+--- a/vcl/inc/hst/coat.hxx
++++ b/vcl/inc/hst/coat.hxx
+@@ -98,6 +98,15 @@
+     order of hst::coat::FrameComponent, each after a comment naming its part. */
+ VCL_PLUGIN_PUBLIC OString CreateGtkCss(bool bDark);
+ 
++/** The colour of a push button's label drawn on rDev over the coat's fill for the button's state
++    (bPressed, bHover). rText is the colour VCL chose from the style settings; platforms choose it for
++    their own bezels, e.g. macOS white for a default button, whose native bezel is the accent. The coat
++    fills every button with the light (dark) control colour, so where rText is not readable on that
++    fill (WCAG AA, 4.5:1) the palette's text colour replaces it. rText is returned unchanged when the
++    coat does not draw on rDev. */
++VCL_DLLPUBLIC Color ReadablePushButtonText(const OutputDevice& rDev, const Color& rText,
++                                           bool bPressed, bool bHover);
++
+ /** The shape of a push button drawn on rDev (rShape, in rDev's pixels), drawn in from the sides that
+     face a sibling push button closer than hst::design::layout::ButtonGap logical pixels, so
+     neighbouring buttons stay visibly apart. The button's window, size and click area do not change. */
+--- a/vcl/qa/cppunit/hst/coat-test.cxx
++++ b/vcl/qa/cppunit/hst/coat-test.cxx
+@@ -206,6 +206,80 @@
+     }
+ }
+ 
++/* A push button's label stays readable (WCAG AA, 4.5:1) on the coat's fill in every state, light and
++   dark: macOS gives a default button white text for its native accent bezel, and the coat draws the
++   button on its light control fill instead. A readable colour is kept as it is. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testPushButtonLabelReadable)
++{
++    auto contrast = [](const Color& rA, const Color& rB) {
++        auto luminance = [](const Color& rColor) {
++            auto channel = [](sal_uInt8 n) {
++                const double f = n / 255.0;
++                return f <= 0.04045 ? f / 12.92 : std::pow((f + 0.055) / 1.055, 2.4);
++            };
++            return 0.2126 * channel(rColor.GetRed()) + 0.7152 * channel(rColor.GetGreen())
++                   + 0.0722 * channel(rColor.GetBlue());
++        };
++        const double fA = luminance(rA);
++        const double fB = luminance(rB);
++        return (std::max(fA, fB) + 0.05) / (std::min(fA, fB) + 0.05);
++    };
++    for (const bool bDark : { false, true })
++    {
++        const auto& p = hst::design::GetPalette(bDark);
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30), bDark);
++        // the states: resting (also default and focused, which change only the border), hover, pressed
++        const std::pair<bool, bool> aStates[] = { { false, false }, { false, true }, { true, false } };
++        for (const auto & [ bPressed, bHover ] : aStates)
++        {
++            const Color aFill = bPressed ? p.aPressed : bHover ? p.aHover : p.aControlFill;
++            const OString aWhat = OString::Concat(bDark ? "dark" : "light")
++                                  + (bPressed ? ", pressed" : bHover ? ", hover" : ", resting");
++            // the palette's text colour is readable on each fill
++            CPPUNIT_ASSERT_MESSAGE(aWhat.getStr(), contrast(p.aText, aFill) >= 4.5);
++            // the platform's label colours (macOS: white on a default button; black otherwise)
++            for (const Color& rPlatform : { COL_WHITE, COL_BLACK, Color(0xF5, 0xF5, 0xF5) })
++            {
++                const Color aLabel
++                    = hst::coat::ReadablePushButtonText(*pDev, rPlatform, bPressed, bHover);
++                const OString aCase(aWhat + ", label " + rPlatform.AsRGBHexString().toUtf8());
++                CPPUNIT_ASSERT_MESSAGE(aCase.getStr(), contrast(aLabel, aFill) >= 4.5);
++                // a colour already readable is not changed
++                if (contrast(rPlatform, aFill) >= 4.5)
++                    CPPUNIT_ASSERT_EQUAL(rPlatform, aLabel);
++            }
++        }
++    }
++    // the white label of a macOS default button on the light fill: the palette's text
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++        CPPUNIT_ASSERT_EQUAL(light().aText,
++                             hst::coat::ReadablePushButtonText(*pDev, COL_WHITE, false, false));
++    }
++    // without the coat (high contrast, or switched off) the platform's colour stays
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30), false, true);
++        CPPUNIT_ASSERT_EQUAL(COL_WHITE,
++                             hst::coat::ReadablePushButtonText(*pDev, COL_WHITE, false, false));
++    }
++    {
++        setSwitch(false);
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++        CPPUNIT_ASSERT_EQUAL(COL_WHITE,
++                             hst::coat::ReadablePushButtonText(*pDev, COL_WHITE, false, false));
++        setSwitch(true);
++    }
++    // GTK: a default button's label in the text colour, except a primary action's (accent and ink)
++    for (const bool bDark : { false, true })
++    {
++        const OString aCss = hst::coat::CreateGtkCss(bDark);
++        const OString aRule("button.default:not(:disabled):not(.suggested-action) label { color: #"
++                            + hst::design::GetPalette(bDark).aText.AsRGBHexString().toUtf8());
++        CPPUNIT_ASSERT(aCss.indexOf(aRule) >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf(aRule) < aCss.indexOf("button.suggested-action label"));
++    }
++}
++
+ CPPUNIT_TEST_FIXTURE(CoatTest, testDarkPalette)
+ {
+     ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30), true);
+--- a/vcl/source/control/button.cxx
++++ b/vcl/source/control/button.cxx
+@@ -57,6 +57,7 @@
+ 
+ #include <HstRibbonLadder.hxx>
+ #include <HstRibbonMenuButtonMetrics.hxx>
++#include <hst/coat.hxx>
+ 
+ 
+ using namespace css;
+@@ -841,6 +842,15 @@
+     }
+ #endif
+ 
++    // HST Office: the coat draws every push button on its own light (or dark) fill, never on the
++    // platform's coloured bezel, so a label colour meant for that bezel (macOS: white on a default
++    // button) is replaced where it is not readable on the coat's fill (coat-buttons.cxx).
++    if (!(nSystemTextColorFlags & SystemTextColorFlags::Mono) && !IsControlForeground()
++        && !IsControlBackground())
++        aColor = hst::coat::ReadablePushButtonText(*pDev, aColor,
++                                                   bool(nButtonFlags & DrawButtonFlags::Pressed),
++                                                   bool(nButtonFlags & DrawButtonFlags::Highlight));
++
+     pDev->SetTextColor(aColor);
+ 
+     if ( IsEnabled() )
+--- a/vcl/source/hst/coat/coat-buttons.cxx
++++ b/vcl/source/hst/coat/coat-buttons.cxx
+@@ -7,14 +7,17 @@
+ 
+ /* Push buttons, check boxes and radio buttons. The label is drawn by the control itself, in the
+    theme's button text colour, so the fills behind it stay light in a light theme and dark in a
+-   dark one: the accent only marks a default button's border, a checked box and a selected radio. */
++   dark one: the accent only marks a default button's border, a checked box and a selected radio.
++   ReadablePushButtonText keeps the label readable where a platform's colour assumes its own bezel. */
+ 
++#include <hst/coat.hxx>
+ #include "coat-paint.hxx"
+ 
+ #include <basegfx/point/b2dpoint.hxx>
+ #include <basegfx/polygon/b2dpolygontools.hxx>
+ #include <vcl/hst/designtokens.hxx>
+ #include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
+ 
+ #include <algorithm>
+ 
+@@ -44,6 +47,18 @@
+ }
+ }
+ 
++Color ReadablePushButtonText(const OutputDevice& rDev, const Color& rText, bool bPressed,
++                             bool bHover)
++{
++    if (!DrawsOn(rDev))
++        return rText;
++    // the fill PaintPushButton gives the state (enabled: a disabled label is drawn in VCL's own
++    // disabled colour, whatever rText is)
++    const auto& p = hst::design::GetPalette(rDev.GetSettings().GetStyleSettings());
++    const Color aFill = bPressed ? p.aPressed : bHover ? p.aHover : p.aControlFill;
++    return ContrastRatio(rText, aFill) >= 4.5 ? rText : p.aText;
++}
++
+ bool PaintPushButton(const PaintContext& rCtx, ControlPart ePart)
+ {
+     if (ePart != ControlPart::Entire)
+--- a/vcl/source/hst/coat/coat-gtk-css.cxx
++++ b/vcl/source/hst/coat/coat-gtk-css.cxx
+@@ -69,6 +69,12 @@
+                 + u"; color: " + hex(p.aDisabledText) + u"; }\n"
+                   u"button.default { border-color: "
+                 + hex(p.aAccent) + u"; }\n"
++                  // the default button keeps the coat's fill, so a theme's light label for its own
++                  // coloured default fill would vanish: the text colour, as on every other button (a
++                  // default that is also the primary action keeps the accent and its ink below)
++                  u"button.default:not(:disabled):not(.suggested-action), "
++                  u"button.default:not(:disabled):not(.suggested-action) label { color: "
++                + hex(p.aText) + u"; }\n"
+                   u"button:focus { border-color: "
+                 + hex(p.aAccent) + u"; box-shadow: inset 0 0 0 " + aBorder + u" "
+                 + hex(p.aAccent) + u"; }\n");

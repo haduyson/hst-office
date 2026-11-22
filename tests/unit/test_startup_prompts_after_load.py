@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up questions wait for a document opened at start: a file opened from the file manager shows its frame before
 the import, so a modal question run then would hold the import under it (blank window, "Load document")."""
 import sys

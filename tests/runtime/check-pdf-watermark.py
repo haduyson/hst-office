@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A translucent watermark (e.g. the per-download name a document system adds) stays faint on
 every path a user can take in HST Office, measured against a pdftoppm render of the original.
 

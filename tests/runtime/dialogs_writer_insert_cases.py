@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Insert Table and the Tabs command follow Word. Used by check-dialogs-writer.py."""
 from dialogs_writer_border_cases import document_xml
 from dialogs_writer_paragraph_font_cases import first_paragraph

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The mockup's expected vectors (tests/runtime/ribbon-mockup-expected.json) and the pure rules of check-ribbon-mockup.py."""
 import json
 import os

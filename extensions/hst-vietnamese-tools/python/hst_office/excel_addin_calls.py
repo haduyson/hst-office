@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Formulas of Excel files that call VND() or USD() through a Vietnamese number-words add-in, turned into calls of the
 HST functions VND and USD (calc_functions.py). Pure Python; excel_addin_calls_job.py applies it after a load.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate patches/libreoffice/hst-ribbon-mail-merge.patch: the Writer "Gửi thư" tab in the order of the familiar
 step-by-step mail merge, driven by the HST Trộn thư commands (org.hst.office.mailmerge:, mail_merge_handler.py).
 

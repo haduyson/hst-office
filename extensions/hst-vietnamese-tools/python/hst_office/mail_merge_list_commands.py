@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ Chọn người nhận ▾: "Nhập danh sách mới" (type a list, save it as .xlsx or .ods, use it) and "Chọn từ
 danh bạ" (a data source registered in the office). "Dùng danh sách có sẵn" is mail_merge_commands.recipients."""
 import os

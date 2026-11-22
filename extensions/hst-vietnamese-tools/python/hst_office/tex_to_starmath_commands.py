@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: the LaTeX commands with arguments (fractions, roots, accents, fonts, text, \\left…\\right,
 environments) for tex_to_starmath. command(reader, name) reads the command's arguments from the reader and returns
 its pieces; an unknown command raises TexError, so the span stays text."""

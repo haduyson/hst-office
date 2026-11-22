@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-ladder-follows-slack.patch: the ribbon's groups are fitted again when the banner's room changes.
 
 The ladder runs in Resize at the box's width plus the slack; a slack change with the box keeping its size gave no

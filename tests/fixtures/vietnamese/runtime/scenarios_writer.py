@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime ND30 checks: insert at cursor, one undo step, page margins, refusals, save .odt/.docx and reopen."""
 import json
 import os

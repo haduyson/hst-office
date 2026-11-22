@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dialog "Đọc số thành chữ" (Sheets: source cell or column and target cell, text or formula, the file's default)
 and Writer (same name: the selected number). Number or money, unit, nghìn/ngàn, lẻ/linh, bốn/tư, Vietnamese/English,
 with a live preview of the first cell. It opens with number_words_defaults.resolve(); numbers and money keep their

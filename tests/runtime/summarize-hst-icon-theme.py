@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Validate the 72-shot matrix and store lossless evidence without duplicate PNGs.
 
 Needs Pillow. Raw PNGs move to --raw-cache only after decoded pixels compare equal.

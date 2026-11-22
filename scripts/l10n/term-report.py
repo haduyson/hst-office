@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Report terminology inconsistencies in translated JSONL files.
 
 Usage: python3 scripts/l10n/term-report.py work/l10n/done [--json out.json]

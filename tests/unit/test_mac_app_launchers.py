@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The macOS app launchers copied out of HST Office.app into /Applications or ~/Applications: first start, refresh
 after an update, no duplicates, removal and re-adding (office side: test_mac_app_launchers_ui.py).
 Everything happens in a temporary folder; ditto is emulated by a tree copy."""

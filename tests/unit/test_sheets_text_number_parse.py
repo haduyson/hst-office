@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Rules of "Chuyển thành số": which texts are numbers stored as text (sc/inc/hsttextnumberparse.hxx).
 
 The header has no LibreOffice dependencies; it is taken from hst-sheets-text-to-number.patch and compiled with a

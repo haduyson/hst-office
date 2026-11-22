@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Recovery after taskkill /F on Windows (power cuts cannot be simulated there; NTFS power loss stays untested).
 
 Run with the office's Python in the interactive session of the test user (the recovery dialog needs a desktop):

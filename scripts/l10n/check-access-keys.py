@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check explicit Vietnamese menu/notebookbar mnemonics, with an offline CI snapshot.
 
 Snapshot labels retain escaped PO msgid/msgstr, decoded msgctxt, and fallback

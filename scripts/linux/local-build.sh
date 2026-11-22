@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Local incremental build of the HST Office Linux .deb, with the same steps as CI
 # (.github/workflows/desktop-linux.yml + scripts/linux/ci-build.sh of the branch being built), in one of the
 # parallel build slots under HST_BUILD_ROOT (default /data/hst-build). Agents normally go through the queue
@@ -24,6 +25,10 @@
 #   --reconfigure      run the configure phase even when nothing it depends on changed
 #   --fresh            re-extract the pristine tarballs (full rebuild)
 #   --no-package       stop after make (skip the single-.deb packaging)
+#   --test-name NAME   with --test: run only that CppUnit test (CPPUNIT_TEST_NAME, e.g. TestTdf150606)
+#   --gdb              with --test: run the tests under `gdb -batch` and log `thread apply all bt full` on a crash
+#                      (the slot's libraries keep their symbol tables: function names, no line numbers)
+#   --package          package even with --test (build, run the tests, then package: a build train's Linux job)
 #   --umount           only unmount the slot's chroot (after a crashed run) and exit (needs --slot N)
 #
 # Layout under HST_BUILD_ROOT:
@@ -67,7 +72,10 @@ TARBALL_CACHE="${HST_LOCAL_TARBALL_CACHE:-/home/office/upstream/cache/libreoffic
 RESUME_MEM_GIB="${HST_LOCAL_RESUME_MEM_GIB:-8}"; MAX_JOBS=20
 MEM_WAIT_MIN="${HST_LOCAL_MEM_WAIT_MIN:-30}"; MIN_FREE_GIB="${HST_LOCAL_MIN_FREE_GIB:-5}"
 CCACHE_MAX="${HST_CCACHE_MAX:-30G}"
-JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
+# Optional systemd slice for the make scopes (a remote build host caps all its builds together in hst-build.slice).
+SLICE="${HST_LOCAL_SLICE:-}"
+[ -z "$SLICE" ] || [[ "$SLICE" =~ ^[A-Za-z0-9_-]+\.slice$ ]] || { echo "local-build: bad HST_LOCAL_SLICE" >&2; exit 64; }
+JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; PACKAGE_WITH_TESTS=0; TEST_NAME=""; TEST_GDB=0; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
 SLOT=auto; MODULES=""; TESTS=""; LABEL_OPT=""; OUT_OPT=""; UMOUNT_ONLY=0
 
 usage() { sed -n '7,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 64; }
@@ -81,11 +89,14 @@ while [ $# -gt 0 ]; do
     --slot) SLOT="${2:-}"; shift 2 ;;
     --modules) MODULES="${2:-}"; shift 2 ;;
     --test) TESTS="${2:-}"; shift 2 ;;
+    --test-name) TEST_NAME="${2:-}"; shift 2 ;;
+    --gdb) TEST_GDB=1; shift ;;
     --label) LABEL_OPT="${2:-}"; shift 2 ;;
     --out) OUT_OPT="${2:-}"; shift 2 ;;
     --reconfigure) RECONFIGURE=1; shift ;;
     --fresh) FRESH=1; shift ;;
     --no-package) PACKAGE=0; shift ;;
+    --package) PACKAGE_WITH_TESTS=1; shift ;;
     --umount) UMOUNT_ONLY=1; shift ;;
     -h|--help) usage ;;
     -*) die "unknown option $1" ;;
@@ -114,15 +125,24 @@ TEST_TARGETS=()
 if [ -n "$TESTS" ]; then
   read -r -a TEST_TARGETS <<< "${TESTS//,/ }"
   for t in "${TEST_TARGETS[@]}"; do
-    [[ "$t" =~ ^((CppunitTest|PythonTest)_[A-Za-z0-9_]+|[a-z0-9_]+\.(check|unitcheck|slowcheck|subsequentcheck))$ ]] \
+    [[ "$t" =~ ^((CppunitTest|PythonTest)_[A-Za-z0-9][A-Za-z0-9_-]*|[a-z0-9_]+\.(check|unitcheck|slowcheck|subsequentcheck))$ ]] \
       || die "--test: '$t' is not a CppunitTest_*/PythonTest_* or <module>.check-style target"
   done
   [ "${#TEST_TARGETS[@]}" -gt 0 ] || die "--test needs at least one target"
-  PACKAGE=0
+  [ "$PACKAGE_WITH_TESTS" -eq 1 ] || PACKAGE=0
 fi
+[ "$PACKAGE_WITH_TESTS" -eq 0 ] || [ -z "$MODULES" ] || die "--package cannot be combined with --modules"
+if [ -n "$TEST_NAME" ] || [ "$TEST_GDB" -eq 1 ]; then
+  [ "${#TEST_TARGETS[@]}" -gt 0 ] || die "--test-name and --gdb need --test"
+  [ -z "$TEST_NAME" ] || [[ "$TEST_NAME" =~ ^[A-Za-z_][A-Za-z0-9_:]{0,199}$ ]] || die "--test-name: bad name '$TEST_NAME'"
+fi
+# Extra make variables of each test run (gbuild's CppunitTest.mk reads CPPUNIT_TEST_NAME and CPPUNITTRACE).
+TEST_MAKE_VARS=()
+[ -z "$TEST_NAME" ] || TEST_MAKE_VARS+=("CPPUNIT_TEST_NAME=$TEST_NAME")
+[ "$TEST_GDB" -eq 0 ] || TEST_MAKE_VARS+=("CPPUNITTRACE=gdb -batch -ex run -ex 'thread apply all bt full' --args")
 MAKE_KIND=full; [ -z "$MODULES" ] || MAKE_KIND=modules
 [ "$(id -u)" -eq 0 ] || die "needs root (chroot and mounts)"
-for tool in git rsync docker chroot mount flock python3 sha256sum systemd-run systemctl ionice; do
+for tool in git rsync chroot mount flock python3 sha256sum systemd-run systemctl ionice; do   # docker: update_base
   command -v "$tool" >/dev/null || die "missing host tool: $tool"
 done
 if [ ! -d "$BASE" ] || [ ! -d "$BUILD_ROOT/slots" ]; then die "$BUILD_ROOT is not set up (scripts/linux/build-slots-setup.sh)"; fi
@@ -141,6 +161,13 @@ OUT="$BUILD_ROOT/out"
 mkdir -p "$WORK" "$CCACHE" "$OUT" "$LOGROOT/ci" "$CHECKOUT" "$BUILD_ROOT/locks"
 exec 9>"$ROOT/.lock"
 flock -n 9 || die "slot $SLOT is busy (another local build holds $ROOT/.lock)"
+# The slot lock is ours, so a make scope of this slot that is still running belongs to a local-build.sh that was
+# killed before its EXIT trap stopped make (e.g. its unit restarted by a package upgrade): stop it before this run
+# touches the tree it would still be writing to.
+for leftover in $(systemctl list-units --plain --no-legend --state=active "hst-local-build-s$SLOT-*.scope" 2>/dev/null | awk '{print $1}'); do
+  echo "local-build: stopping leftover make scope $leftover of slot $SLOT" >&2
+  systemctl stop "$leftover" || true
+done
 # Base chroot: builds hold it shared while their overlay is mounted; only a deps update takes it exclusively.
 exec 8>"$BUILD_ROOT/locks/chroot.lock"
 
@@ -150,7 +177,8 @@ mounts_under() { awk -v p="$1/" 'index($5, p) == 1 {print $5}' /proc/self/mounti
 umount_tree() { # umount_tree <dir>: everything mounted below <dir>, deepest first, then <dir> itself
   local m
   mounts_under "$1" | sort -r | while IFS= read -r m; do umount -R "$m" 2>/dev/null || umount -R -l "$m" || true; done
-  if mountpoint -q "$1"; then umount "$1" 2>/dev/null || umount -l "$1" || true; fi
+  local _   # <dir> itself may carry stacked mounts (the slot's private bind under its overlay): unmount them all
+  for _ in 1 2 3 4; do mountpoint -q "$1" || break; umount "$1" 2>/dev/null || umount -l "$1" || true; done
   if [ -n "$(mounts_under "$1")" ] || mountpoint -q "$1"; then die "could not unmount $1: $(mounts_under "$1" | tr '\n' ' ')"; fi
 }
 umount_chroot() { umount_tree "$CHROOT"; MOUNTED=0; }
@@ -182,9 +210,15 @@ mount_system() { # mount_system <root>: proc, sys and an own minimal /dev
 base_marker() { cat "$BASE/.hst-image" "$BASE/.hst-deps" 2>/dev/null | sha256sum | cut -c1-16; }
 
 mount_chroot() { # the slot's overlay of the base chroot (writes go to chroot-upper/, reset when the base changes)
-  if ! mountpoint -q "$CHROOT"; then
+  if [ "$(findmnt -rn -o FSTYPE --mountpoint "$CHROOT" | tail -1)" != overlay ]; then
     if [ "$(cat "$ROOT/.chroot-base" 2>/dev/null)" != "$(base_marker)" ]; then rm -rf "$UPPER" "$OVLWORK"; fi
     mkdir -p "$CHROOT" "$UPPER" "$OVLWORK"
+    # A private bind of the mountpoint first, so the overlay (and everything later mounted in it) never propagates
+    # into other mount namespaces: / is a shared mount, and services with a private namespace (udevd, fwupd,
+    # resolved, ...) would otherwise keep a copy that the unmount here never reaches. overlayfs then holds the
+    # upper/work dirs "in use" and warns (undefined behaviour) on the slot's next mount.
+    mountpoint -q "$CHROOT" || mount --bind "$CHROOT" "$CHROOT"
+    mount --make-private "$CHROOT"
     mount -t overlay overlay -o "lowerdir=$BASE,upperdir=$UPPER,workdir=$OVLWORK" "$CHROOT"
     mount --make-private "$CHROOT"
     base_marker > "$ROOT/.chroot-base"
@@ -259,7 +293,12 @@ resolve_source() {
 
 # ---------------------------------------------------------------- toolchain (base chroot, shared by all slots)
 deps_want() {
-  echo "clang=$CLANG $(sed -n '/^do_deps()/,/^}/p' "$CHECKOUT/scripts/linux/ci-build.sh" | sha256sum | cut -c1-16)"
+  # Fingerprint of what do_deps installs. Comments and network-robustness settings (apt Acquire:: retries and
+  # timeouts, curl --retry/--max-time) are left out: they change how packages are fetched, not which, so a branch
+  # that only adds them must not force an exclusive rebuild of the shared base chroot (that stalls every slot).
+  echo "clang=$CLANG $(sed -n '/^do_deps()/,/^}/p' "$CHECKOUT/scripts/linux/ci-build.sh" \
+    | grep -v -e '^[[:space:]]*#' -e 'Acquire::' -e '80hst-network' \
+    | sed -e 's/ --retry [0-9]*//g' -e 's/ --max-time [0-9]*//g' | sha256sum | cut -c1-16)"
 }
 base_current() { [ "$(cat "$BASE/.hst-image" 2>/dev/null)" = "$IMAGE" ] && [ "$(cat "$BASE/.hst-deps" 2>/dev/null)" = "$(deps_want)" ]; }
 
@@ -270,6 +309,7 @@ update_base() { # recreate/extend the base chroot; runs with the chroot lock hel
   if [ "$(cat "$BASE/.hst-image" 2>/dev/null)" != "$IMAGE" ]; then
     [ -z "$(mounts_under "$BASE")" ] || die "base chroot still mounted"
     log "creating base chroot from $IMAGE"
+    command -v docker >/dev/null || die "docker is needed to create the base chroot from $IMAGE (a remote build host gets a copy of the dev server's chroot instead)"
     local had_image=0 cid
     docker image inspect "$IMAGE" >/dev/null 2>&1 && had_image=1
     [ "$had_image" -eq 1 ] || docker pull -q "$IMAGE" >/dev/null
@@ -315,6 +355,13 @@ ensure_tarballs() { # pinned tarballs in $DL: local cache copy, else download li
   [ "$missing" -eq 0 ] || python3 -I "$CHECKOUT/scripts/windows/fetch-sources.py" --dest "$DL"
 }
 
+# Hard-link a tree of cached files into place; when source and target sit on different filesystems
+# (slots moved to a second disk), fall back to a no-clobber copy so the build still gets every file.
+link_tree() { # link_tree SRC_DIR DST_DIR
+  mkdir -p "$2"
+  cp -rln "$1/." "$2/" 2>/dev/null || cp -r --update=none --reflink=auto "$1/." "$2/"
+}
+
 ensure_pristine() { # extract like CI once, then index the untouched tree (outside $SRC: no .git there,
   # or LibreOffice would treat it as a git build and rerun autogen.sh on its own)
   local want; want="$(sha256sum "$CHECKOUT/upstream/libreoffice-lock.json" | cut -c1-16)"
@@ -323,8 +370,8 @@ ensure_pristine() { # extract like CI once, then index the untouched tree (outsi
   rm -rf "$PRISTINE" "$SYNC" "$WORK/.pristine"
   ci --extract
   # External tarballs (sha256-checked by make fetch) survive re-extraction as hard links.
-  mkdir -p "$EXT_CACHE" "$SRC/external/tarballs"
-  cp -rln "$EXT_CACHE/." "$SRC/external/tarballs/"
+  mkdir -p "$EXT_CACHE"
+  link_tree "$EXT_CACHE" "$SRC/external/tarballs"
   git init -q --bare "$PRISTINE"
   pgit config core.bare false; pgit config gc.auto 0
   pgit add -A -f .
@@ -404,8 +451,32 @@ invalidate_stale_translations() { # also catches a .po synced by a run that neve
   done
 }
 
+# An installed dialog keeps the gettext domain of the tree that delivered it. A patch that delivers .ui files from
+# hst/l10n/ui (root <interface domain="hst-sc">) and is then reverted leaves those copies in instdir: the copy rule
+# depends only on the source file, which is older than the copy, so make never delivers the plain dialog again and
+# the package ships dialogs whose domain has no catalogue (English UI). Drop every instdir .ui with an hst- domain
+# that no hst/l10n/ui file of the same name carries in this tree; make delivers it again from the current source.
+invalidate_stale_ui_domains() {
+  local cfg="$SRC/instdir/share/config/soffice.cfg" keep="$1"
+  [ -d "$cfg" ] || return 0
+  { [ ! -d "$SRC/hst/l10n/ui" ] || grep -r -o -m1 --include='*.ui' '<interface domain="hst-[^"]*"' "$SRC/hst/l10n/ui" \
+      || true; } | awk '{ i = index($0, ":<interface "); p = substr($0, 1, i - 1); sub(/.*\//, "", p); print p "\t" substr($0, i + 1) }' \
+    | sort -u > "$keep"
+  { grep -r -o -m1 --include='*.ui' '<interface domain="hst-[^"]*"' "$cfg" || true; } \
+    | awk -v keep="$keep" 'BEGIN { while ((getline line < keep) > 0) k[line] }
+        { i = index($0, ":<interface "); p = substr($0, 1, i - 1); b = p; sub(/.*\//, "", b)
+          if (!((b "\t" substr($0, i + 1)) in k)) print p }' > "$keep.drop"
+  if [ -s "$keep.drop" ]; then
+    log "instdir has $(wc -l < "$keep.drop") .ui files with an hst- gettext domain this tree does not deliver: dropping them"
+    xargs -d '\n' -r rm -f -- < "$keep.drop"
+  fi
+  rm -f "$keep" "$keep.drop"
+}
+
 check_translations() { # the built catalogues must match this ref's .po (scripts/l10n/check-mo-fresh.py)
-  python3 -I "$SELF_REPO/scripts/l10n/check-mo-fresh.py" --tree "$SRC" --lang vi \
+  # The deployed checker (older refs predate it) runs in the slot chroot with the image's gettext, not the host's.
+  mkdir -p "$WORK/sync"; cp "$SELF_REPO/scripts/l10n/check-mo-fresh.py" "$WORK/sync/check-mo-fresh.py"
+  in_chroot / python3 -I "$C_WORK/sync/check-mo-fresh.py" --tree "$C_SRC" --lang vi \
     || die "stale translation catalogues in instdir (see above); the package would ship old Vietnamese strings"
 }
 
@@ -428,7 +499,7 @@ configure_if_needed() {
     timed configure ci --configure
     cp "$SRC/autogen.input" "$WORK/autogen.input.last"
     timed fetch ci --fetch
-    cp -rln "$SRC/external/tarballs/." "$EXT_CACHE/"
+    link_tree "$SRC/external/tarballs" "$EXT_CACHE"
   else
     log "configure: inputs unchanged, skipped"
   fi
@@ -445,7 +516,13 @@ configure_if_needed() {
 mem_avail_gib() { awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo; }
 swap_used_mib() { awk '/SwapTotal/{t=$2}/SwapFree/{f=$2}END{print int((t-f)/1024)}' /proc/meminfo; }
 free_gib() { df -BG --output=avail "$BUILD_ROOT" | tail -1 | tr -dc 0-9; }
-scope_cg() { echo "/sys/fs/cgroup/system.slice/$SCOPE.scope"; }
+slice_cg() { # cgroup path of a slice: a dash nests slices (hst-build.slice is hst.slice/hst-build.slice)
+  local name="${1%.slice}" path="" part="" p
+  IFS=- read -r -a parts <<< "$name"
+  for p in "${parts[@]}"; do part="${part:+$part-}$p"; path="$path/$part.slice"; done
+  echo "/sys/fs/cgroup$path"
+}
+scope_cg() { echo "$(slice_cg "${SLICE:-system.slice}")/$SCOPE.scope"; }
 budget_mib() { "${SLOTS_PY[@]}" budget --jobs "$1"; }
 
 start_make() { # make like ci-build.sh --build (or the --modules targets), in a capped scope, own session
@@ -456,7 +533,7 @@ start_make() { # make like ci-build.sh --build (or the --modules targets), in a 
     "MemorySwapMax=0 CPUQuota=$(( jobs * 100 ))%, nice 19, idle I/O; MemAvailable $(mem_avail_gib) GiB," \
     "swap used $(swap_used_mib) MiB, /data free $(free_gib) GiB)"
   # shellcheck disable=SC2016 # expanded by the inner shell
-  systemd-run --scope --quiet --unit="$SCOPE" -p MemoryMax="${max}M" -p MemoryHigh="${high}M" \
+  systemd-run --scope --quiet --unit="$SCOPE" ${SLICE:+--slice="$SLICE"} -p MemoryMax="${max}M" -p MemoryHigh="${high}M" \
     -p MemorySwapMax=0 -p CPUQuota="$(( jobs * 100 ))%" -- \
     setsid nice -n 19 ionice -c3 chroot "$CHROOT" /usr/bin/env -i HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin \
     CCACHE_DIR="$C_CCACHE" HST_REPO_ROOT="$C_CHECKOUT" HST_ICON_DIR="$C_CHECKOUT/assets/brand/icons" \
@@ -469,7 +546,10 @@ start_make() { # make like ci-build.sh --build (or the --modules targets), in a 
         test) exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@" ;;
       esac
       # Module builds: the UNO API headers first, in their own invocation (docs/SHARED_BUILD_SLOTS.md).
-      make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" udkapi.build offapi.build oovbaapi.build || exit $?
+      # officecfg always: its generated officecfg/*.hxx headers are not a make dependency of the modules that
+      # include them, so a slot tree last built from another commit keeps stale headers unless officecfg is
+      # remade first (it is a no-op when its schema is unchanged), and building it in the same parallel make races.
+      make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" udkapi.build offapi.build oovbaapi.build officecfg.build || exit $?
       exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@"' "$C_SRC" "$jobs" "$MAKE_KIND" "${MAKE_TARGETS[@]}" \
     >> "$BUILD_LOG" 2>&1 &
   BUILD_PGID=$!; PAUSES=0
@@ -536,6 +616,8 @@ do_build() {
         "${SLOTS_PY[@]}" update --slot "$SLOT" --want "$jobs" || true
         log "make killed (scope memory cap?), retrying with -j$jobs"; sleep 30; start_make "$jobs"; continue
       fi
+      # The tail shows the jobs that finished after the failing one (mostly warnings): the error lines come first.
+      python3 -I "$SELF_REPO/scripts/build_infra/build_log_errors.py" "$BUILD_LOG" || true
       tail -60 "$BUILD_LOG"; return "$rc"
     fi
     sleep 5; tick=$(( tick + 1 ))
@@ -574,7 +656,7 @@ run_tests() { # each --test target in turn, same scope guards as the build; resu
   mkdir -p "$TEST_OUT/test-logs"; : > "$RUN_LOGS/tests.tsv"
   MAKE_KIND="test"
   for t in "${TEST_TARGETS[@]}"; do
-    MAKE_TARGETS=("$t"); BUILD_LOG="$RUN_LOGS/test-$t.log"; start=$(date +%s); rc=0
+    MAKE_TARGETS=("$t" "${TEST_MAKE_VARS[@]}"); BUILD_LOG="$RUN_LOGS/test-$t.log"; start=$(date +%s); rc=0
     log "test $t: start"
     do_build || rc=$?
     cp "$BUILD_LOG" "$TEST_OUT/test-logs/$t.log"
@@ -663,12 +745,16 @@ total_start=$(date +%s)
 timed toolchain ensure_toolchain
 mount_chroot
 in_chroot / ccache --max-size="$CCACHE_MAX" >/dev/null
-timed branding /usr/bin/python3 -I "$CHECKOUT/scripts/stage-branding.py" --out "$ROOT/branding-stage"
-rsync -rlpc --delete "$ROOT/branding-stage/" "$WORK/branding/"; rm -rf "$ROOT/branding-stage"
+# Branding assets are rendered in the slot chroot (the CI image's Python and Pillow, like CI), never with the host's
+# Python: a build host must not need (or silently use a different) Pillow.
+rm -rf "$WORK/branding-stage"
+timed branding in_chroot "$C_CHECKOUT" python3 -I "$C_CHECKOUT/scripts/stage-branding.py" --out "$C_WORK/branding-stage"
+rsync -rlpc --delete "$WORK/branding-stage/" "$WORK/branding/"; rm -rf "$WORK/branding-stage"
 timed extract ensure_pristine
 timed patch sync_patches
 invalidate_translations
 invalidate_stale_translations
+mkdir -p "$SYNC"; invalidate_stale_ui_domains "$SYNC/ui-domains.keep"
 configure_if_needed
 if [ -n "$MODULES" ] && [ ! -x "$SRC/instdir/program/soffice" ]; then
   die "slot $SLOT has no complete build yet; --modules needs one full build in the slot first"

@@ -25,6 +25,12 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
    (tài liệu đã sửa vẫn hiện hộp hỏi lưu; chọn Hủy thì hủy cập nhật và dừng trợ giúp). Trợ giúp đợi tiến trình soffice
    thoát, **kiểm lại SHA256 ngay trước khi cài**, chạy bộ cài, xóa tệp nếu thành công, rồi mở lại HST Office (cả khi cài
    lỗi: mở bản cũ). Nhật ký ở `update.log` trong thư mục cache, gồm cả đầu ra của `apt-get`/`dnf`/`zypper`/`rpm`/`pkcon`.
+   Ngay trước khi chạy trợ giúp, HST Office ghi `updating.lock` cạnh `update.log` (PID trợ giúp, PID HST Office, thời
+   điểm); trợ giúp xóa tệp khi kết thúc, **trước khi** mở lại HST Office. Một bản HST Office được mở trong lúc đó (job
+   `update_guard.py` ở `OnStartApp`) thấy khóa còn và trợ giúp còn chạy thì báo "đang cài bản cập nhật, ứng dụng sẽ tự
+   mở lại" rồi thoát. Khóa của trợ giúp đã dừng, hoặc cũ hơn 45 phút, bị coi là cũ và xóa. macOS: job này còn so
+   `CFBundleShortVersionString` của bundle trên đĩa với bản đang chạy (và xem tệp chạy có bị đổi sang `.hst-old` không);
+   lệch thì báo, chờ HST Office thoát rồi tự mở lại (không lặp lại trong 10 phút cho cùng cặp phiên bản).
 5. Cài lỗi: trợ giúp ghi `update-result.json` cạnh `update.log`, rồi mở lại bản cũ. Lần khởi động đó, job khởi động
    (`update_outcome.py`) đọc tệp, xóa ngay, rồi hiện một lần thông báo theo ngôn ngữ giao diện kèm nút **Tải về** và đường
    dẫn nhật ký. Tệp chỉ nằm trên máy này, không gửi đi đâu.
@@ -36,6 +42,8 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 | `verify` | SHA256 sai ngay trước khi cài; macOS: sai chữ ký, Team ID hoặc Gatekeeper | tệp không qua bước kiểm tra lần cuối |
 | `tool` | thiếu `pkexec` + `apt-get` (.deb) hoặc `dnf`/`zypper`/`rpm` (.rpm), và thiếu `pkcon`, lúc cài (đã kiểm trước khi đóng, chỉ gặp khi máy đổi giữa chừng) | máy thiếu công cụ cài |
 | `wait` | HST Office không thoát trong 30 phút | HST Office không đóng hẳn |
+| `readonly` | macOS: bản đang chạy nằm trên dmg hoặc vị trí tạm (App Translocation) | không ghi được chỗ cài |
+| `busy` | macOS: sau khi HST Office thoát vẫn còn tiến trình chạy từ bundle quá 60 giây (người dùng mở lại app giữa chừng), trợ giúp không thay bundle; mã 75 | HST Office vẫn đang mở |
 
    Không ghi gì (không có thông báo) khi: cài thành công; chọn **Hủy** ở hộp hỏi lưu (trợ giúp dừng, **không** mở lại, vì
    HST Office vẫn đang mở); người dùng tự từ chối ở hộp mật khẩu (`pkexec` 126, `msiexec` 1602, macOS
@@ -49,7 +57,7 @@ ngôn ngữ giao diện (vi/en), như phần kiểm tra cập nhật.
 | Linux `.deb` | `pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y <deb>`, hoặc `pkcon install-local` (hỏi mật khẩu quản trị). Thiếu cả hai: báo rõ trước khi đóng, dùng "Tải về" |
 | Linux `.rpm` | qua `pkexec`: `dnf install -y <rpm>`, không có dnf thì `zypper --non-interactive install <rpm>`, không có thì `rpm -U <rpm>`; không có `pkexec` thì `pkcon install-local`. Gói đã ký GPG và bản cài có `/opt/hst-office1.0/RPM-GPG-KEY-hasontech`: cùng lệnh `pkexec` chạy `rpm --import <khóa>` trước (`sh -c '…' sh <khóa> <lệnh>`), zypper kiểm chữ ký; chỉ gói chưa ký (hoặc thiếu tệp khóa) mới thêm `--allow-unsigned-rpm` cho zypper. Mã `pkexec` 126/127 xử lý như `.deb` |
 | Linux AppImage | không cần quyền quản trị: sau khi HST Office thoát, kiểm lại SHA256 tệp mới (đã nằm trong `.hst-office-update` cạnh AppImage cũ), `chmod 755`, `mv -f` đè lên **đúng đường dẫn** AppImage cũ (đổi tên nguyên tử; launcher của phần tích hợp menu vẫn đúng), xóa thư mục ẩn, mở tệp mới với môi trường đã bỏ `APPDIR`/`APPIMAGE`/`PYTHONHOME`/... của lần gắn cũ |
-| macOS | gắn dmg, `codesign --verify --deep --strict`, `spctl --assess`, Team ID phải là `74AT34P945`; chép bản mới cạnh bản cũ, kiểm lại, đổi tên bản cũ sang `.hst-old`, đưa bản mới vào chỗ, rồi mới xóa bản cũ (hỏng thì khôi phục); quyền quản trị qua `osascript ... with administrator privileges` khi thư mục không ghi được; mở lại bằng `open` |
+| macOS | **Trong lúc HST Office còn mở** (hộp "Đang chuẩn bị bản cập nhật…" có nút Hủy, `update_helper_ready.py`): kiểm SHA256, gắn dmg, `codesign --verify --deep --strict`, `spctl --assess`, Team ID phải là `74AT34P945`; nếu người dùng ghi được chỗ cài thì chép luôn bản mới cạnh bản cũ (`.hst-new`) và kiểm lại bản chép. Xong, trợ giúp ghi `update-ready` (PID, mã, lỗi) và chỉ khi đó HST Office mới đóng; kiểm lỗi thì HST Office vẫn mở và báo ngay (Tải về), Hủy thì dừng trợ giúp và xóa bản chép. Khi HST Office vừa thoát: thông báo hệ thống "Đang cài bản cập nhật HST Office. Ứng dụng sẽ tự mở lại, vui lòng chờ." (theo ngôn ngữ giao diện). Sau khi thoát chỉ còn: chờ tối đa 60 giây cho mọi tiến trình chạy từ bundle (`ps -axww -o comm=`) kết thúc, quá hạn thì bỏ `.hst-new`, ghi `busy` và báo; đổi tên bản cũ sang `.hst-old`, đưa bản mới vào chỗ, rồi mới xóa bản cũ (hỏng thì khôi phục). Thư mục không ghi được: quyền quản trị qua `osascript ... with administrator privileges`, root chép và kiểm lại rồi mới đổi (cùng bước chờ 60 giây, trả mã 75 khi từ chối). Mở lại bằng `open`; nếu đã có một HST Office chạy từ bundle (mở trong lúc cập nhật) thì không `open` (lệnh đó chỉ đưa bản đang chạy lên trước); cài thành công thì báo người dùng thoát rồi mở lại để dùng bản mới. Bản chép dở do Hủy ở hộp hỏi lưu được xóa (lần sau cũng xóa nếu còn sót) |
 
 Linux: một tệp `HSTOffice_<release>_Linux_x86-64.{deb,rpm,AppImage}` mỗi loại ([LINUX_PACKAGES.md](LINUX_PACKAGES.md));
 bản phát hành cũ dạng `.deb.tar.gz` chỉ có "Tải về".
@@ -111,7 +119,10 @@ macOS; tài liệu quản trị do phần khóa cấu hình cập nhật nắm) 
   `test_update_manifest_linux_packages.py` (`latest-3.json` và các tệp cũ, kiểm schema theo tên khi ký),
   `test_update_prepare.py` (tải, kiểm, dùng lại, hủy, chính sách), `test_update_helper.py` (dòng lệnh trợ giúp mỗi hệ
   điều hành; chạy thật tập lệnh sh với công cụ giả), `test_update_outcome.py` (bản ghi cài lỗi, đọc một lần, Hủy không ghi
-  và không mở lại).
+  và không mở lại), `test_update_helper_mac_race.py` (macOS: kiểm và chép trước khi HST Office thoát, từ chối hoặc chờ
+  khi còn tiến trình chạy từ bundle, khóa xóa trước khi mở lại, không `open` khi đã có HST Office chạy từ bundle), `test_update_helper_ready.py`
+  (HST Office chờ dấu `update-ready` rồi mới đóng), `test_update_guard.py`
+  (khóa cập nhật, bundle lệch phiên bản lúc khởi động).
 - Runtime Linux: `python3 tests/runtime/check-update-install.py` (máy chủ cục bộ, .deb giả, bước cài chạy dry-run);
   `python3 tests/runtime/check-update-outcome.py` (trợ giúp thật với `pkexec` giả trả 127, bản cũ mở lại và hiện thông báo
   một lần; Hủy ở hộp hỏi lưu).

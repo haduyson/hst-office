@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF keeps red red (PDFium page bitmaps are BGRx): the red-stamp workflows of
 pdf_stamp_samples on screen, in the page bitmap that the screen, thumbnails and printing use
 (HSTPdfInfo RenderRedPixels/RenderBluePixels), printed to a file, and after signing a copy."""

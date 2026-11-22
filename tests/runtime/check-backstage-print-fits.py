@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Print page of the File panel shows all of itself in a small window (hst-backstage-panel-beside-banner.patch):
 in a visible office (Windows: the test user's own session, at the scaling under test, e.g. 125 %), the document
 window is set to each width (1024, 1042, 1366 px by default), .uno:Print opens the Print page; the panel must reach

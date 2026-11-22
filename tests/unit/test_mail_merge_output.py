@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, "Hoàn tất và trộn": the engine (com.sun.star.text.MailMerge) is disposed right after it runs, also
 when it fails, so no engine outlives the merge (one still alive at quit closes its document after Writer is gone)."""
 import os

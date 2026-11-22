@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-HST-Proprietary
+// Copyright (C) 2026 HASON TECH
 // Measures right-click -> context-menu window latency for one running soffice process on macOS.
 // Build:  swiftc -swift-version 5 scripts/perf/macos-context-menu.swift -framework AppKit -framework ApplicationServices -o build/tools/macos-context-menu
 // Synthetic mode posts CGEvents (needs Accessibility); --manual listens to your physical right-clicks

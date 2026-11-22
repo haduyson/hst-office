@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Find and Replace in Writer shows its labels without a literal "_": the Advanced expander and every Go To prompt,
 in Vietnamese and in English, and the English prompts keep their access key.
 

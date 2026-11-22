@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The v3 ribbon layout applied to the four notebookbar.ui files (helpers of generate-ribbon-v3-ui.py).
 
 Every group of data/ribbon/ribbon-v3.json names its commands in their order and their kind (L large, M small with its
@@ -90,7 +91,8 @@ def new_unit(item, units, tab="Home"):
     """A command the 1.0.2 ribbon does not have ("new": an owner addition): a copy of the tool item of its neighbour
     ("clone") with its own command and ids (bxV3<id> toolbox, btn<tab>Hst<k> button, the tab as in the group id). An extension's protocol command
     (org.hst.office.vi:...) keeps its name and gets the item's label, tooltip and "icon", as the other HST extension
-    buttons of the ribbon; a .uno: command takes them from the command."""
+    buttons of the ribbon; a .uno: command takes them from the command, its image unless the item names an "icon" and its ribbon name unless it has a
+    "lbl" (English; hst-ribbon-label, context <Tabbed...>|<button id>)."""
     model = next((u for u in units if u.key == item["clone"] and u.toolbox is not None), None)
     if model is None:
         raise KeyError(f"no tool item {item['clone']} to copy for {item['k']}")
@@ -111,6 +113,17 @@ def new_unit(item, units, tab="Home"):
         prop = ET.Element("property", name="label")
         prop.text = item["k"]
         anchor.addprevious(prop)
+        if item.get("icon"):  # a command without a 24 px image of its own (e.g. ReadOnlyDoc) names one
+            prop = ET.Element("property", name="icon-name")
+            prop.text = item["icon"]
+            anchor.addnext(prop)
+        if item.get("lbl"):  # the ribbon's own short name (English msgid), translated in the module's catalogue
+            root = model.element.getroottree().getroot()
+            ui = next(p.get("context").split("|")[0] for p in root.iter("property")
+                      if (p.get("context") or "").startswith("Tabbed"))
+            prop = ET.Element("property", name="hst-ribbon-label", translatable="yes", context=ui + "|" + obj.get("id"))
+            prop.text = item["lbl"]
+            anchor.addnext(prop)
     else:
         # as the other HST extension buttons of the ribbon: its own label, tooltip and image (no command label)
         for key, value in (("icon-name", item.get("icon")), ("label", item["t"]),

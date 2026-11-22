@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Document tabs keep the user interface mode of their own module (Linux, GUI build, existing X display).
 
 Scenario and judgement: ui_mode_tabs_scenario.py. Usage: python3 tests/runtime/check-ui-mode-tabs.py

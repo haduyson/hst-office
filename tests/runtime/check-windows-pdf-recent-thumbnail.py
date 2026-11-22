@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start Center "Tài liệu gần đây" thumbnail of a PDF with a faint diagonal stamp, on an INSTALLED HST Office (Windows).
 
 The PDF is synthetic (pdf_translucent_stamp_sample: black stamp text under /ca 0.1, signature widgets). It is opened as

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-item-window-fits-toolbox.patch: a ribbon toolbox shows all of an item window.
 
 vcl/inc/HstRibbonItemFit.hxx is compiled with a small driver and fed the places the Windows 125 % dumps measured:

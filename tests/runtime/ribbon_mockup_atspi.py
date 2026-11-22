@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Linux collector for ribbon_mockup_geometry: the showing nodes of the ribbon band through AT-SPI (gtk3, Xvfb).
 
 Run as the build user under dbus-run-session with pyatspi available (see check-ribbon-mockup.py).

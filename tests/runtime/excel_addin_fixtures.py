@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Small .xlsx files that call VND()/USD() through a Vietnamese number-words add-in, written part by part the way
 Excel writes such calls (ECMA-376 Part 1, 18.14 External Workbook References and 18.17 Formulas; the relationship
 types of [MS-XLSX] 2.1 for links relative to an Office folder):

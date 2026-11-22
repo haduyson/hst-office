@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The steps of check-toolbar-two-rows.py and check-windows-toolbar-two-rows.py (same cases on Linux and Windows).
 
 `office` is any object with ctx, screenshot(path) and dispatch(frame, command, args); `args` has out, shots and

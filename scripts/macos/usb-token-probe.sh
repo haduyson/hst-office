@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Run HST ▸ Thiết lập USB Token… natively in a released HST Office.app with a branch-built extension.
 #   usb-token-probe.sh <HSTOffice_*.dmg> <hst-vietnamese-tools.oxt> <work-dir> <out-dir> <verify-python>
 # Copies the app out of the dmg, re-signs it ad hoc (as the other probes do), then runs

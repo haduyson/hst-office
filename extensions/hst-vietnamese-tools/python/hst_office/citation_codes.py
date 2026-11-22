@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Field codes of HST citations and of the bibliography in a document. Pure Python (no uno).
 
 A citation is a text fieldmark (type UNHANDLED) whose code is

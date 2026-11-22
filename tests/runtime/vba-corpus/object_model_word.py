@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One statement per Word object-model member. A probe only says the member ran without an error; v is a Variant, d the document, r its first paragraphs."""
 
 SETUP = 'Dim v, d As Object, r As Object\nSet d = ActiveDocument\nd.Content.Text = "Mot hai ba. Bon nam." & vbCr & "Sau bay" & vbCr & "Tam"\nSet r = d.Range(0, 7)\n'

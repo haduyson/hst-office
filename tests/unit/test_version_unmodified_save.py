@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Saving an unmodified document again keeps no new copy when its file is still what this office last wrote (OOXML
 and ODF rewrite their save time, so the bytes always differ); a file changed by another program is still kept."""
 import os

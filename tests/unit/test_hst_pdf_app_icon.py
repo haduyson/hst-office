@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF's own app icon (crimson tile, folded page, the letters "PDF" as outlines): one master for every size, made
 into the Linux hicolor set, the Windows .ico copied into the source tree and the macOS launcher icon."""
 import importlib.util

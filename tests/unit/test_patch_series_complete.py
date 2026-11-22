@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Every LibreOffice patch file is listed in the series, and every series entry exists."""
 from pathlib import Path
 import unittest

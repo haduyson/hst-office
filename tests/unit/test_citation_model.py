@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Reference items (CSL-JSON) are validated at one boundary; dates parse the shapes importers and users write."""
 import unittest
 

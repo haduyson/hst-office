@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """External updater contracts: argument and script construction, validation and shell syntax."""
 import ast
 import hashlib
@@ -94,7 +95,8 @@ class HelperContract(unittest.TestCase):
         for part in ('hdiutil attach -nobrowse -readonly -noverify -mountpoint "$MOUNT" "$INSTALLER"',
                      'codesign --verify --deep --strict "$1"', 'codesign -dv --verbose=4 "$1"',
                      'spctl --assess --type execute "$app"', "TeamIdentifier=" + cmd.TEAM_ID, "swap()",
-                     'ditto "$source" "$staged"', '/bin/sh "$0" --swap "$app" "$SOFFICE"',
+                     'ditto "$source" "$staged"', '/bin/sh "$0" --stage "$app" "$SOFFICE"', '/bin/sh "$0" --commit "$SOFFICE"',
+                     '--swap) swap "$2" "$3"', 'ps -axww -o comm=', 'rm -f "$LOCK"',
                      "quoted form of", "with administrator privileges", 'hdiutil detach -force "$MOUNT"'):
             self.assertIn(part, mac)
 

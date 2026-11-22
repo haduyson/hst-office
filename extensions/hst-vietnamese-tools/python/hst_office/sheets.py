@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Calc number-format helpers. Format selection is pure; `apply_format` talks to UNO objects passed in by
 the caller and never imports `uno` at module level. Cell values and formulas are never rewritten."""
 import re

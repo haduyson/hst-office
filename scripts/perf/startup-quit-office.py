@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Quit the office that scripts/perf/startup-timing.py started: close its dialogs, then Desktop.terminate().
 
 Run with the office's own Python (import uno). Connects to the 127.0.0.1 port the harness passed with --accept, so it can only

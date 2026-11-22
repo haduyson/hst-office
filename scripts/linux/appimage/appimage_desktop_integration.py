@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Per-user desktop integration of the HST Office AppImage (no root): launchers, icons and MIME types in
 $XDG_DATA_HOME (default ~/.local/share), pointing at the AppImage file itself.
 

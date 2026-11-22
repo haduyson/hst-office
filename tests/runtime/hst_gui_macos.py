@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS counterpart of hst_gui.Office: one HST Office.app instance driven over UNO.
 
 Runs inside the app's bundled Python (it provides `uno`). Each instance has its own profile and

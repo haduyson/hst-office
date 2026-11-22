@@ -12,7 +12,9 @@ working on patches that are not in `series` yet.
    series patch that touches those files must reverse-apply at fuzz 0, in reverse order, on a copy.
 3. Dry-run your whole chain at fuzz 0 on a copy, then apply it.
 4. Build in three separate `make` invocations, in this order:
-   1. `make udkapi.build offapi.build oovbaapi.build`
+   1. `make udkapi.build offapi.build oovbaapi.build officecfg.build`, always: the generated `officecfg/*.hxx`
+      headers are not a dependency of the modules that include them, so a slot tree last built from another commit
+      would keep stale headers (a no-op when the schema is unchanged)
    2. the modules your patches touch, plus `Library_merged` (vcl, sfx2 and svx live in libmergedlo)
    3. modules that link against libmergedlo, such as `sw.build`, `sc.build` and `sd.build`
 5. Copy what you need into a private instdir copy. Break hard links to every file you take: use
@@ -45,6 +47,13 @@ Neither `make build` nor a module build remakes:
 - the translated registry, `registry_vi.xcd`.
 
 A new `sd.component` entry also does not reach `instdir/program/services/services.rdb`.
+
+A delivered file is copied again only when its source is newer than the copy. When a ref changes which
+source a `.ui` is delivered from (the HST catalogue patch delivered `hst/l10n/ui/...` with
+`<interface domain="hst-sc">`) and a later ref goes back to the plain source, the older source never replaces
+the copy, and the package ships dialogs in a domain without a catalogue (English text, 2026-11-20). The queue's
+tree sync (`invalidate_stale_ui_domains` in `scripts/windows/hst4-tree.sh` and `scripts/linux/local-build.sh`)
+drops every instdir `.ui` with an `hst-` domain that the current tree does not deliver.
 
 For a private test copy, use one of these:
 

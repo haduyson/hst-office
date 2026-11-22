@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GtkBuilder XML helpers of generate-draw-ribbon.py: find, move, rename and serialize objects of a notebookbar.ui."""
 import copy
 import xml.etree.ElementTree as ET

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Import entry point: pick the format from the file name or the content, parse, and attach the "sửa tên Việt"
 suggestions for the preview table.
 

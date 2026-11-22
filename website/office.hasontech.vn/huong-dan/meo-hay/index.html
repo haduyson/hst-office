@@ -61,7 +61,7 @@
    "description": "Nếu tài liệu dùng phông .VnTime hoặc VNI-Times, hãy dùng HST → Chuyển TCVN3/VNI sang Unicode. Bạn cần tự chọn bảng mã nguồn và xem trước kết quả. Xem các…",
    "inLanguage": "vi",
    "url": "https://office.hasontech.vn/huong-dan/meo-hay/",
-   "dateModified": "2026-11-21",
+   "dateModified": "2026-11-22",
    "about": {
     "@id": "https://office.hasontech.vn/#software"
    },
@@ -170,6 +170,27 @@
 <p>HST Office không cần tài khoản, không cần Internet và không thu thập dữ liệu của bạn. Báo cáo lỗi chỉ được gửi cho HASON TECH khi bạn tự chọn gửi. Hướng dẫn này cũng có sẵn trên máy. Riêng <a href="/huong-dan/tro-ly-ai/">Trợ lý AI</a> cần mạng và khóa API của nhà cung cấp AI bạn chọn; nội dung chỉ được gửi tới nhà cung cấp đó khi bạn bấm Gửi.</p>
 <h2>Công cụ NĐ 30 có kiểm tra hiệu lực pháp lý không?</h2>
 <p>Không. Công cụ chỉ hỗ trợ trình bày văn bản. Bạn cần đối chiếu quy định hiện hành của cơ quan trước khi ban hành. Xem <a href="/huong-dan/nd30/">hướng dẫn NĐ 30 và lưu ý về hoàn tác</a>.</p>
+<h2 id="mac-toan-man-hinh">Trên macOS, hộp thoại có bị khuất khi dùng toàn màn hình không?</h2>
+<p>Trên macOS, mỗi cửa sổ toàn màn hình nằm trong một không gian (Space) riêng. Khi bạn mở hoặc tạo tài liệu mới trong lúc đang dùng toàn màn hình, các hộp thoại đang mở, ví dụ hộp mở từ nút ↘ của nhóm <span class="menu">Phông chữ</span> hay hộp <span class="menu">Tìm và thay thế</span>, được chuyển theo sang cửa sổ của tài liệu mới, nên không bị khuất ở không gian cũ. Cửa sổ toàn màn hình nằm ở màn hình phụ cũng được nhận ra như ở màn hình chính.</p>
+<p>Nếu một hộp thoại đang mở thêm một hộp thoại khác bên trong (ví dụ bấm <span class="menu">Nguồn mới…</span> trong hộp <span class="menu">Chèn trích dẫn</span>), chỉ hộp trong cùng đi theo. Muốn thấy hộp bên ngoài, hãy chuyển về không gian cũ bằng <span class="keys"><kbd>Control</kbd>+<kbd>←</kbd></span> hoặc <span class="keys"><kbd>Control</kbd>+<kbd>→</kbd></span>, hoặc vuốt ngang bằng ba hay bốn ngón trên bàn di chuột.</p>
+<h2 id="hyprland">Trên Hyprland, hộp thoại không có thanh tiêu đề thì di chuyển thế nào?</h2>
+<p>Trên Hyprland và các trình quản lý cửa sổ kiểu lát gạch (tiling) khác, thanh tiêu đề do trình quản lý cửa sổ vẽ chứ không phải ứng dụng. Hyprland báo cho ứng dụng rằng nó tự vẽ khung cửa sổ nhưng bản gốc lại không vẽ thanh tiêu đề, nên mọi cửa sổ GTK, kể cả hộp thoại của HST Office và hộp thoại của các ứng dụng khác, đều không có thanh tiêu đề. Đây là hành vi của trình quản lý cửa sổ, không phải lỗi của HST Office.</p>
+<ul>
+  <li>Di chuyển hộp thoại: giữ <span class="keys"><kbd>SUPER</kbd></span> và kéo bằng chuột trái (phím di chuyển cửa sổ mặc định của Hyprland). Các trình quản lý tiling khác thường cũng dùng phím SUPER (hoặc phím bổ trợ bạn đã đặt) kèm kéo chuột.</li>
+  <li>Muốn hộp thoại luôn nổi và nằm giữa màn hình: mở hộp thoại, chạy <code>hyprctl clients</code> trong cửa sổ dòng lệnh để xem <code>class</code> và <code>title</code> thật của nó, rồi thêm quy tắc cửa sổ (windowrule) vào tệp cấu hình Hyprland. Thay tên lớp và tiêu đề trong ví dụ bằng giá trị bạn thấy.</li>
+  <li>Muốn có thanh tiêu đề: cài plugin <code>hyprbars</code> của Hyprland.</li>
+</ul>
+<p>Cú pháp quy tắc khác nhau theo phiên bản Hyprland (xem bằng <code>hyprctl version</code>). Ví dụ cho hộp <span class="menu">Hoàn tất và trộn</span> của Trộn thư:</p>
+<p>Hyprland 0.53 và 0.54 (cú pháp <code>match:</code>):</p>
+<pre><code>windowrule = float on, match:class ^(soffice|vn\.hasontech\.hstoffice.*)$, match:title ^(Finish &amp; Merge|Hoàn tất và trộn)$
+windowrule = center on, match:class ^(soffice|vn\.hasontech\.hstoffice.*)$, match:title ^(Finish &amp; Merge|Hoàn tất và trộn)$</code></pre>
+<p>Hyprland 0.45 trở về trước:</p>
+<pre><code>windowrulev2 = float, class:^(soffice|vn\.hasontech\.hstoffice.*)$, title:^(Finish &amp; Merge|Hoàn tất và trộn)$
+windowrulev2 = center, class:^(soffice|vn\.hasontech\.hstoffice.*)$, title:^(Finish &amp; Merge|Hoàn tất và trộn)$</code></pre>
+<p>Hyprland 0.55 trở lên (cấu hình bằng Lua):</p>
+<pre><code>hl.window_rule({ match = { class = "^(soffice|vn\\.hasontech\\.hstoffice.*)$", title = "^(Finish &amp; Merge|Hoàn tất và trộn)$" }, float = true })
+hl.window_rule({ match = { class = "^(soffice|vn\\.hasontech\\.hstoffice.*)$", title = "^(Finish &amp; Merge|Hoàn tất và trộn)$" }, center = true })</code></pre>
+<p>Với các phiên bản khác, xem tài liệu Hyprland của đúng phiên bản bạn dùng. Từ bản 0.46, biểu thức phải khớp toàn bộ giá trị. Quy tắc nổi chỉ được áp dụng lúc cửa sổ mở, nên phải khớp tiêu đề có sẵn ngay khi hộp thoại hiện ra.</p>
 <h2>Mở lại hướng dẫn bằng cách nào?</h2>
 <p>Trong HST Office, nhấn <span class="keys"><kbd>F1</kbd></span> hoặc chọn <span class="menu">Trợ giúp → Trợ giúp HST Office</span>.</p>
 </article>
@@ -185,7 +206,7 @@
     <div class="container">
       <div class="footer-main"><div class="footer-brand"><a class="brand" href="/" aria-label="HST Office — Trang chủ"><picture><source srcset="/assets/img/hst-office-logo-400.webp?v=1" type="image/webp"><img src="/assets/img/hst-office-logo-400.png?v=1" width="400" height="105" alt="HST Office" loading="lazy" decoding="async"></picture></a><p>Bộ ứng dụng văn phòng của người Việt.<br> Miễn phí vĩnh viễn. Đồng hành mỗi ngày.</p><span class="product-by">Sản phẩm của <strong>HASON TECH</strong></span><nav class="footer-nav" aria-label="Liên kết trang"><a href="/">Trang chủ</a><a href="/#tinh-nang">Tính năng</a><a href="/#tai-ve">Tải về</a><a href="/cai-dat/">Hướng dẫn cài đặt</a><a href="/huong-dan/" aria-current="page">Hướng dẫn sử dụng</a><a href="/diem-moi/">Điểm mới</a><a href="/quyen-rieng-tu/">Quyền riêng tư</a></nav></div><div class="footer-contact" id="lien-he"><a class="company-logo" href="https://hasontech.vn/?utm_source=office-hasontech-vn&amp;utm_medium=landing&amp;utm_campaign=hst-office-1-0" aria-label="HASON TECH — hasontech.vn"><picture><source srcset="/assets/img/hasontech-logo-240.webp?v=1" type="image/webp"><img src="/assets/img/hasontech-logo-240.png?v=1" width="240" height="187" alt="Logo HASON TECH" loading="lazy" decoding="async"></picture></a><div class="company-info"><h2>Công ty TNHH Công&nbsp;nghệ Hà&nbsp;Sơn <span>(HASON TECH)</span></h2><address>300 Xô&nbsp;Viết Nghệ&nbsp;Tĩnh, phường Cẩm&nbsp;Lệ, <span class="nowrap">TP. Đà Nẵng</span></address><div class="contact-links"><a href="tel:+842363507507">(0236) 3.507.507</a><a href="mailto:lienhe@hasontech.vn">lienhe@hasontech.vn</a><a href="https://www.facebook.com/share/g/1TvVaU6q4V/" target="_blank" rel="noopener nofollow">Nhóm Facebook hỗ trợ</a><a href="https://hasontech.vn/?utm_source=office-hasontech-vn&amp;utm_medium=landing&amp;utm_campaign=hst-office-1-0">hasontech.vn <span aria-hidden="true">↗</span></a></div></div></div></div>
       <div class="ecosystem"><p>KHÁM PHÁ GIẢI PHÁP HASON TECH</p><nav aria-label="Giải pháp HASON TECH"><a href="https://aios.hasontech.vn/?utm_source=office-hasontech-vn&amp;utm_medium=landing&amp;utm_campaign=hst-office-1-0" rel="nofollow">AIOS <span aria-hidden="true">↗</span></a><a href="https://echatbot.vn/?utm_source=office-hasontech-vn&amp;utm_medium=landing&amp;utm_campaign=hst-office-1-0" rel="nofollow">eChatbot <span aria-hidden="true">↗</span></a><a href="https://espace.vn/zaloapp?utm_source=office-hasontech-vn&amp;utm_medium=landing&amp;utm_campaign=hst-office-1-0" rel="nofollow">Zalo Mini App <span aria-hidden="true">↗</span></a><a href="https://seo.hasontech.vn/?utm_source=office-hasontech-vn&amp;utm_medium=landing&amp;utm_campaign=hst-office-1-0" rel="nofollow">HST SEO <span aria-hidden="true">↗</span></a><a href="https://post.hasontech.vn/?utm_source=office-hasontech-vn&amp;utm_medium=landing&amp;utm_campaign=hst-office-1-0" rel="nofollow">HST Post <span aria-hidden="true">↗</span></a><a href="https://aidelam.com/?utm_source=office-hasontech-vn&amp;utm_medium=landing&amp;utm_campaign=hst-office-1-0" rel="nofollow">AI Dễ Lắm <span aria-hidden="true">↗</span></a></nav></div>
-      <div class="footer-legal"><p>© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice</p><p>HST Office được phát triển từ mã nguồn mở LibreOffice. Trân trọng cảm ơn The Document&nbsp;Foundation và cộng đồng LibreOffice. Phát hành theo giấy phép MPL&#8209;2.0.</p></div>
+      <div class="footer-legal"><p>© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice</p><p>HST Office được phát triển từ mã nguồn mở LibreOffice. Trân trọng cảm ơn The Document&nbsp;Foundation và cộng đồng LibreOffice. HST Office là phần mềm độc quyền của HASON&nbsp;TECH, sử dụng miễn phí; các thành phần LibreOffice theo giấy phép MPL&#8209;2.0.</p></div>
     </div>
   </footer>
   <!-- /site-footer -->

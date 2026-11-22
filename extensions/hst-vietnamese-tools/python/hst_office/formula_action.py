@@ -1,11 +1,12 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức commands (Chèn ▸ nhóm Công thức, and the question on double-clicking a MathType equation):
   - ConvertFormulas ("Chuyển công thức"): every MathType equation of the document, one undo step;
   - AskConvertFormula: the selected MathType equation, after asking (formula_click runs it when such an equation is
     double-clicked): "Chuyển thành công thức HST" / "Để nguyên", plus "Mở bằng MathType" on Windows when MathType is
     installed (formula_mathtype_server; owner decision 18/11/2026).
 The work is done by formula_convert; this module only talks to the user."""
-from . import formula_convert
+from . import diag_log, formula_convert
 from .dialogs import message_box
 from .formula_mathtype_server import CONVERT, LEAVE, OPEN, choices
 
@@ -57,6 +58,16 @@ def _choose(host, text, answers):
     return answers[code - 1] if 1 <= code <= len(answers) else LEAVE
 
 
+def open_selected(host):
+    """The selected object's primary verb through the view, as a double-click runs it: the view's in-place client
+    takes MathType's changes back into the document and its picture."""
+    from com.sun.star.beans import PropertyValue
+    verb = PropertyValue()
+    verb.Name, verb.Value = "VerbID", 0  # com.sun.star.embed.EmbedVerbs.MS_OLEVERB_PRIMARY
+    helper = host.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", host.ctx)
+    helper.executeDispatch(host.frame, ".uno:ObjectMenue", "", 0, (verb,))
+
+
 def ask_convert_selected(host):
     found = _selected_equation(host)
     if found is None:
@@ -70,7 +81,7 @@ def ask_convert_selected(host):
     answers = choices(formula_ole.root_class_id(data))
     answer = _choose(host, s["askOneMathType"] if OPEN in answers else s["askOne"], answers)
     if answer == OPEN:  # as before HST Công thức: the equation's own program opens it
-        return obj.EmbeddedObject.doVerb(0)  # com.sun.star.embed.EmbedVerbs.MS_OLEVERB_PRIMARY
+        return open_selected(host)
     if answer != CONVERT:
         return
     from .undo import undo_step
@@ -78,6 +89,64 @@ def ask_convert_selected(host):
         result = formula_convert.convert_one(host.ctx, host.doc, container, obj)
     if not result:
         message_box(host.ctx, host.peer, s["title"], s["kept"] % 1)
+
+
+MATHTYPE_CLSID = "0002CE03-0000-0000-C000-000000000046"  # Equation.DSMT4 (formula_ole.MATHTYPE)
+HST_FORMULA = ".uno:InsertObjectStarMath"  # the Insert tab's "Công thức mới" in Writer
+
+
+def new_equation(host, installed=None):
+    """Ctrl+Alt+Q in HST Writer, MathType's key in Word: where MathType is installed (formula_mathtype_server, both
+    registry views) a new MathType equation at the cursor, in the text as a character, opened in MathType; elsewhere
+    a new HST formula as in HST Office 1.0.3 (owner decision 22/11/2026)."""
+    if installed is None:
+        from .formula_mathtype_server import server_installed as installed
+    helper = host.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", host.ctx)
+    if not (host.is_writer() and installed(MATHTYPE_CLSID) and _insert_mathtype(host, helper)):
+        helper.executeDispatch(host.frame, HST_FORMULA, "", 0, ())
+
+
+def _insert_mathtype(host, helper):
+    """A new, empty MathType object at the view cursor, then its primary verb: MathType opens it. False when the
+    object cannot be made (the office makes a foreign OLE object only through Windows OLE)."""
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    cursor = host.controller.getViewCursor()
+    obj = host.doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+    obj.CLSID = MATHTYPE_CLSID
+    obj.AnchorType = AS_CHARACTER
+    try:
+        cursor.getText().insertTextContent(cursor, obj, True)
+    except Exception:  # noqa: BLE001 - e.g. the cursor is in a place that takes no object
+        return False
+    if obj.getExtendedControlOverEmbeddedObject() is None:
+        obj.dispose()
+        return False
+    host.controller.select(obj)
+    _open_when_selected(host)
+    return True
+
+
+OPEN_DELAY = 0.4  # s: Writer takes a new selection into its view shell on a 120 ms timer; the verb needs it there
+
+
+def _open_when_selected(host):
+    """MathType opens the new object once the view has its selection: the view's verb command is off until then
+    (HST5 22/11/2026: run at once, the object went in and MathType stayed closed)."""
+    import threading
+    import unohelper
+    from com.sun.star.awt import XCallback
+
+    class _Open(unohelper.Base, XCallback):
+        def notify(self, _data):
+            try:
+                open_selected(host)
+            except Exception:  # noqa: BLE001 - the object is in; a double-click still opens it
+                diag_log.exception("formula_new_equation")
+
+    def post():
+        host.ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.AsyncCallback", host.ctx).addCallback(
+            _Open(), None)
+    threading.Timer(OPEN_DELAY, post).start()
 
 
 TEMPLATES_PATH = "/org.hasontech.hstoffice.Formula"

@@ -1,0 +1,33 @@
+HST Office: Writer's OLE cache leaves another program's objects alone
+
+When an object starts running (a formula inserted or opened), Writer's OLE cache unloads the least
+recently used running objects beyond Office.Common/Cache/Writer/OLE_Objects (20). For an object
+of another program on Windows (a MathType equation), unloading makes that program's OLE server
+load the object. In a document with many MathType equations, inserting or opening a formula
+evicted them one after another until MathType stopped in its endless "Too many windows are
+open" box and the office had to be ended in Task Manager (tdf#45892, tdf#94334). Measured on
+Windows with MathType 7.12: the box came with the default cache size and did not come with the
+cache raised to 500 or with the equations not running.
+
+The cache now unloads only the office's own objects (SotExchange::IsInternal); other objects stay
+as they are. Unloading them freed little: their program runs outside the office.
+Test: CppunitTest_sw_uibase_uiview, testOleCacheKeepsMathTypeObjects.
+
+License: the upstream file remains under its original license (MPL-2.0).
+
+--- a/sw/source/core/ole/ndole.cxx
++++ b/sw/source/core/ole/ndole.cxx
+@@ -1149,6 +1149,13 @@
+ 
+ bool SwOLEObj::UnloadObject()
+ {
++    // HST Office: the cache does not unload another program's object (MathType, a Word picture…). Unloading frees
++    // nothing in this process, and on Windows it makes the program's OLE server load the object: with many MathType
++    // equations, inserting or opening a formula evicted them one after another until MathType stopped with its
++    // endless "Too many windows are open" box (tdf#45892). Such an object stays as it is, as before it came into use.
++    if (m_xOLERef.is() && !SotExchange::IsInternal(SvGlobalName(m_xOLERef->getClassID())))
++        return false;
++
+     bool bRet = true;
+     if ( m_pOLENode )
+     {

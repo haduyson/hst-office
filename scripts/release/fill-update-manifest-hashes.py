@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fill a reviewed update-feed draft with the hashes and sizes of the installers that were actually built.
 
 A draft directory (docs/releases/v<release>-update-draft/) holds latest-3.json, latest-2.json and latest.json as they

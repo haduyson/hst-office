@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The HST settings schemas (org.hasontech.hstoffice.*) as the core configuration defines them.
 
 They are added to officecfg by patches/libreoffice/hst-extension-settings-core.patch (packed into main.xcd); the bundled

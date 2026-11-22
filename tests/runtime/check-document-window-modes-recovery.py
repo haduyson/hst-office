@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Crash recovery with per-application window modes on a real GUI build (Xvfb, xdotool).
 
 Usage: python3 tests/runtime/check-document-window-modes-recovery.py [--instdir upstream/libreoffice/instdir]

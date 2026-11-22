@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Hủy" (Cancel) and "Quay lại" (Back) next to the "In" button of the Print page of the File panel
 (hst-backstage-print-cancel-back.patch). Read from the patches: the panel .ui of hst-backstage-print.patch with this
 patch's hunk applied, the Vietnamese strings and the hooks."""

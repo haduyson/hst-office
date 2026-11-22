@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What check-ribbon-scaling.py reads from the ribbon at one width: group toolbars and panels, the chevron, the banner
 and the ribbon height, through AT-SPI."""
 import os

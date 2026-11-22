@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """CSL-JSON dates: parse what importers and users type into ``{"date-parts": [[y, m, d]]}``. Pure Python (no uno).
 
 Accepted: "2010", "2010-05-07", "2010/05/07/" (RIS), "2010/05", "07/05/2010" (Vietnamese day first), "May 7, 2010",

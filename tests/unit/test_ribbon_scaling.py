@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon collapse ladder (vcl HstRibbonScaling.hxx from hst-ribbon-scaling-helper.patch).
 
 The helper picks, for an available width, the size state of every ribbon group from an ordered

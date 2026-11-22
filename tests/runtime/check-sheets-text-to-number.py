@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of "Chuyển thành số" (hst-sheets-text-to-number*.patch) against an installed HST Office.
 
 Usage (run with the office's own Python, the Xvfb display must already run; it is never started or stopped here):

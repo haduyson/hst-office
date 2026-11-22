@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon growth order and menu buttons at the small state (hst-ribbon-ux-grow-order.patch); the banner always wide.
 
 fitByPriority() (vcl/inc/HstRibbonRegrow.hxx) collapses the least used groups first and lets the shown ones

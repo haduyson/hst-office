@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, Word fields: reading a Word field instruction ("IF { MERGEFIELD Giới_tính } = "Nam" "Ông" "Bà"") into a
 Field: its type and its tokens, a token being literal text and nested Fields, quoted or not. Pure Python
 (mail_merge_word_fields evaluates the result)."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A scrolling band of controls in a dialogs.Dialog, for dialogs taller than the screen's work area (the ND30 wizard at
 1366x768 with 125 % scaling: about 708 px of work area for a 920 px dialog).
 

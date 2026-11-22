@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: turn MathType equations (Equation Editor 3.x, MathType 4-7) into editable Math formulas in Writer,
 Sheets, Slides and Draw, one object or all as one undo step. The object's OLE data is read back (storeToEntry), a new
 Math object takes its place and reads it with com.sun.star.comp.Math.MathTypeFilter (MTEF 5: HST's patch); if that

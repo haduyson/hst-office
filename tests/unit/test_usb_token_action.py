@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """User-visible results and restart decisions without touching tokens or user data."""
 from contextlib import ExitStack
 from pathlib import Path

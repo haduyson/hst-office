@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Remove the Help-menu entries that lead to online services from a LibreOffice source tree.
 
 Usage: python3 scripts/patches/strip-donation.py <tree-root> [file ...]

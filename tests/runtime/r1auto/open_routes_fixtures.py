@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The documents W16 opens: one small file per format, ODF written here and OOXML converted from it."""
 from pathlib import Path
 import subprocess

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Open/save timings and peak memory of 50-200 MB files on Linux, each file in its own memory-capped cgroup.
 #   large-file-memcap-linux.sh <program dir of an unpacked package> <fixtures dir> <out dir> <label> [files...]
 # Runs scripts/perf/large-file-open.py --mode gui --save for every file (default: all in the fixtures dir) under its

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Start-up timing of the HST Office .deb on a GitHub Ubuntu runner (Xvfb, no window manager), with the variants that
 # split the time. Usage: startup-timing-linux.sh <deb-dir> <out-dir> [variants]
 # variants (default all): hst (the installed office: fresh, warm x3, cold), trace (with the Python tracer), noext (the

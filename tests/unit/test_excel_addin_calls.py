@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """VND()/USD() called through a Vietnamese number-words add-in become the HST functions after a load: the formula
 text rules, the job's registration, and that other external references stay as they were."""
 import os

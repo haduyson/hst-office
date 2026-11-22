@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon groups that collapse into their button, the Home Tools block, the banner threshold and the Slides
 galleries' height (hst-ribbon-group-button.patch, hst-ribbon-scale-ladders-collapse.patch,
 hst-ribbon-banner-frame-width.patch, hst-slides-gallery-height.patch). These tests read the patches only."""

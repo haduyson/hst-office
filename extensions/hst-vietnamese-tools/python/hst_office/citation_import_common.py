@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Building blocks of the importers (RIS, BibTeX, EndNote XML, PubMed .nbib, EndNote .enw): an item builder that
 collects raw fields and ends in citation_model.normalize_item, so every importer validates the same way."""
 import re

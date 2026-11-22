@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 <#
 TEST ONLY: copy a module-build patch overlay (scripts/windows/hst4-build.ps1 -Modules) over an administrative
 install image of a reference HST Office MSI. Never use the result as a release or on a user's machine.
@@ -10,7 +11,7 @@ param([Parameter(Mandatory)][string]$Image)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $files = Join-Path $PSScriptRoot 'files'
-$list = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'FILES') | Where-Object { $_ })
+$list = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'FILES.txt') | Where-Object { $_ })
 foreach ($line in Get-Content -LiteralPath (Join-Path $PSScriptRoot 'SHA256SUMS')) {
     $hash, $rel = $line -split '\s+\*?', 2
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $files $rel)).Hash -ne $hash.ToUpper()) { throw "checksum mismatch: $rel" }

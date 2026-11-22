@@ -187,8 +187,8 @@ Stage 1 → đầy đủ: 5.301 file tài nguyên, alias, sheet và manifest gi�
 [provenance.json](metadata/provenance.json) ghi blob SHA-1 của bảng alias đã đối
 chiếu trực tiếp với cây Colibre tại commit pin, cùng nguồn gốc hình học HST.
 
-Artwork HST dùng **CC-BY-4.0**; script/config mới dùng **AGPL-3.0-only** theo quy
-ước repo. Xem [LICENSE.md](LICENSE.md) và [văn bản CC BY 4.0](LICENSE-CC-BY-4.0.txt).
+Artwork HST dùng **CC-BY-4.0**; script/config mới là mã độc quyền của HASON TECH
+(`LicenseRef-HST-Proprietary`) theo quy ước repo. Xem [LICENSE.md](LICENSE.md) và [văn bản CC BY 4.0](LICENSE-CC-BY-4.0.txt).
 Đã đối chiếu `NOTICE.md`, `docs/LICENSE_AUDIT.md` và `THIRD_PARTY_NOTICES.md`.
 
 Toàn bộ đầu ra nằm trong `icon-themes-src/hst/`. Giữ nhánh `codex/ribbon-look`,

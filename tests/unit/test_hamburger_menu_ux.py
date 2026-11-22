@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The ribbon's ≡ menu (hst-hamburger-menu-ux.patch): feature search first in every app, Draw complete."""
 import re
 import unittest

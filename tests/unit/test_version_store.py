@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Store of "Phiên bản trước": copies with metadata, no duplicate of the newest copy, the size limit, retention
 (10 per file, 30 days, 2 GB overall, oldest first), Vietnamese paths, same names in different folders."""
 

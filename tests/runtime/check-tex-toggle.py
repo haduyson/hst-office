@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of Chuyển TeX ⇄ công thức (org.hst.office.vi:TexToggle) in a real HST Writer (headless, own profile).
 
 Usage (Linux: start the office through tests/runtime/no-hst-telemetry.sh):

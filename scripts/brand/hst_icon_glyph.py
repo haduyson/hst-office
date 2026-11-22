@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One shipped HST command glyph: its SVG at a raster size, and its display-scale variants.
 
 VCL rasterises an icon SVG at its icon scale, which window.cxx (CountDPIScaleFactor) rounds to

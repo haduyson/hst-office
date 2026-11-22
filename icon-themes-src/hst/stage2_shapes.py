@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Stage 2 recipes: shape and slide families."""
 from drawing import add, p, r, c, transform, arrow, grid, page, slide, plus, cross, check, badge, GLYPHS
 from stage2_nouns import lines, pencil, small_pen, lock, bubble, eye, image_frame, book, chart, gear, clock_face, refresh, letter, circle_mark

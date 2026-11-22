@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Judge what collect-windows-banner-fit.py gathered on Windows with check-banner-fit.py's rules.
 
 Usage: python3 tests/runtime/check-windows-banner-fit.py --collected DIR --instdir LINUX_INSTDIR [--out FILE]

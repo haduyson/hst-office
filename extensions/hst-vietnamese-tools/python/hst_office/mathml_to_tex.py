@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: a formula back to LaTeX from its MathML (no UNO), for formulas the toggle did not make or
 that were edited since. Exam-paper LaTeX: \\frac, \\sqrt, scripts, \\left…\\right, \\begin{array} (cases are \\left\\{
 with an array, as in Vietnamese papers), \\text, \\mathbb. tex(mathml) raises TexBackError for MathML it can't write."""
 import re
 import xml.etree.ElementTree as ET
-
 from .mathml_tex_symbols import (ACCENTS, ALIGN, BIG, FENCES, FUNCTIONS, LIMITS, NS, SIMPLE_BASE, SYMBOLS,
                                  TEXT_ESCAPES, decode_entities)
 

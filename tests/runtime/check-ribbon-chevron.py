@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the chevron (») of the ribbon on a real GUI: shown only when a group is folded, and it opens them (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-chevron.py [--instdir DIR] [--display :71] [--shots DIR]

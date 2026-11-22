@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Priority ladders of every ribbon tab (scripts/patches/generate-ribbon-priorities.py, data/ribbon/scaling-priorities.json)."""
 import importlib.util
 import json

@@ -3,8 +3,8 @@
 Bộ mẫu gồm **68 Writer `.ott`, 11 Sheets `.ots`, 5 Slides `.otp`** (84 mẫu). Nguồn nội dung
 là JSON; bộ sinh dùng Python standard library (`zipfile` và XML), không chạy
 LibreOffice, không tải tài nguyên và không nhúng phông chữ. Nội dung mẫu có giấy
-phép **CC BY 4.0**, ghi nhận HST Office; mã bộ sinh và kiểm tra có giấy phép
-**AGPL-3.0-only**.
+phép **CC BY 4.0**, ghi nhận HST Office; mã bộ sinh và kiểm tra là mã độc quyền của HASON TECH
+(`LicenseRef-HST-Proprietary`).
 
 ## Danh mục và nguồn dữ liệu
 

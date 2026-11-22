@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Document side of check-digital-signature.py: the test documents, loading them in a window, the signature state
 HST shows and its API verification, signed PDF export, the token certificate and a tampered copy."""
 import os

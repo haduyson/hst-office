@@ -12,7 +12,7 @@ Nguồn thực thi: [kế hoạch standalone](../plans/261029-1234-hst-office-li
 |---|---|---|---|---|
 | LO-AUD-01 | P0 | Audit nguồn tại tag; ADR 0002 thay 0001; ghi pivot vào kiến trúc/brief, giữ lịch sử | — | planned · 00 |
 | LO-AUD-02 | P0 | Khuyến nghị 26.8.1; pin tag/SHA/archive/hash thật, so 26.2.6; không tự nâng phiên bản | LO-AUD-01 | planned · 00 |
-| LO-LEG-01 | P0 | Đọc COPYING, COPYING.MPL, license.xml và notices sinh theo build; MPL cho file chịu MPL, AGPL-3.0 cho mã HST độc lập; kiểm điều kiện tương thích và third-party | LO-AUD-02 | planned · 00 |
+| LO-LEG-01 | P0 | Đọc COPYING, COPYING.MPL, license.xml và notices sinh theo build; MPL cho file chịu MPL, mã HST độc lập theo giấy phép độc quyền `LicenseRef-HST-Proprietary` từ 1.0.4 (AGPL-3.0 cho 1.0.0–1.0.3); kiểm điều kiện tương thích và third-party | LO-AUD-02 | planned · 00 |
 | LO-LEG-02 | P0 | Kiểm TDF trademark policy; bỏ dấu hiệu TDF/LibreOffice khỏi nhận diện sản phẩm, giữ “based on LibreOffice” và notices/source đúng | LO-LEG-01 | planned; policy tự động bị chặn · 00/02 |
 | LO-LEG-03 | P0 | Giữ nguồn NĐ30; kiểm hiệu lực, provenance bảng mã, font và dictionary trước claim/phân phối tương ứng | LO-LEG-01 | planned; hiệu lực NĐ30 chưa xác nhận · 00/05 |
 | LO-BLD-01 | P0 | Fetch source/companion deps theo lock; Ubuntu 24.04 toolchain/config có provenance; source build thật trên VPS | LO-AUD-02 | planned; cần quyền/network · 01 |

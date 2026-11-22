@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Contracts of the native build, signing and release workflows, for scripts/check-workflows.py.
 
 Each rule takes the workflow's jobs, its steps and `require(condition, message)`, which records a failure."""

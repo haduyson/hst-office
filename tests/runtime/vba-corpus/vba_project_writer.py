@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build a real MS-OVBA project (CFB + compressed streams) from source text in a chosen code page, standard library only.
 
 The VBA in these files comes from this writer, not from Office, so they test what the importer does with the bytes Office stores

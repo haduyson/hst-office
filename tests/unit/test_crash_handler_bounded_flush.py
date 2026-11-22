@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The crash handler never waits forever on the configuration (hst-crash-handler-bounded-flush.patch).
 
 Owner report (Windows 1.0.1): a crash while a Writer document closed left the emergency save dialog with an empty
@@ -47,9 +48,13 @@ class Series(unittest.TestCase):
         self.assertIn(PATCH, names)
         later = names[names.index(PATCH) + 1:]
         files = ("desktop/source/app/app.cxx", "framework/source/services/hstrecoverylist.cxx", "sal/osl/w32/signal.cxx")
+        # Builds on this patch's Desktop::Exception and keeps its bounded flush (test_crash_recovery_ui_watchdog.py).
+        builds_on = {"hst-crash-recovery-ui-watchdog.patch": ("desktop/source/app/app.cxx",)}
         for name in later:
             text = (PATCHES / name).read_text(encoding="utf-8")
             for path in files:
+                if path in builds_on.get(name, ()):
+                    continue
                 self.assertNotIn("+++ b/" + path, text, "%s changes %s again" % (name, path))
 
 

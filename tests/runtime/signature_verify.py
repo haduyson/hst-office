@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Independent (non-HST) verification of signed documents for the digital-signature check.
 
 ODF (META-INF/documentsignatures.xml, XAdES) and OOXML (_xmlsignatures/sig*.xml): checks the

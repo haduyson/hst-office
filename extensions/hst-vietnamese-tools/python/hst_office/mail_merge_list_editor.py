@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ Chọn người nhận ▸ Nhập danh sách mới: type a recipient list without opening Sheets. The columns are
 editable (up to MAX_COLUMNS, Vietnamese defaults); the table shows every person, the form below edits the selected
 one; "Thêm người" / "Xóa người" add and remove. Returns (headers, rows of str) or None; the caller saves it as

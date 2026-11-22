@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS configuration profiles (managed preferences) of HST Office's domain vn.hasontech.hstoffice.
 
 Administrators push them with an MDM or a .mobileconfig; macOS writes /Library/Managed Preferences/<domain>.plist

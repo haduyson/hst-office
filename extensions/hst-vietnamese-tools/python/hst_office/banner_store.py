@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Signed metadata ordering and last-eligible fallback, atomically committed under an OS lock."""
 import base64
 from contextlib import contextmanager

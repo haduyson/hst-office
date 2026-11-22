@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The citation style of a document: the user-defined document property HSTCitationStyle (UNO, plus pure checks).
 
 Value: {"style": "vn-so", "preset": null, "opts": {...}} as compact JSON, at most 255 characters, so other word

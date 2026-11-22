@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Centimetres are the default measurement unit in all four apps, whatever the locale (hst-measure-unit-cm.patch).
 
 Sheets, Slides and Draw read Layout/Other/MeasureUnit/Metric for metric locales (vi-VN) and .../NonMetric for the

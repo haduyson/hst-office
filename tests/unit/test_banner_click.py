@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Banner click destination with a stubbed probe, and the real helper's HEAD against a stub opener."""
 import unittest
 from unittest import mock

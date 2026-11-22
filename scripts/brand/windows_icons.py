@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST replacements for the upstream application icons that ship inside the product.
 
 - Windows: one multi-size .ico per upstream sysui/desktop/icons/<name>.ico (soffice.exe,

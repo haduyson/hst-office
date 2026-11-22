@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Repack the single HST Office .deb as ONE .rpm (Fedora, openSUSE, RHEL and derivatives).
 
 No second build: the payload of the .deb that scripts/linux/make-single-deb.py wrote (install root /opt/hst-office1.0,

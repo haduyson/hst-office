@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Đọc số thành chữ" steps of check-vietnamese-utilities.py: the dialog reopens with the last choice, a column of
 cells is read in one undo step (overwrite notice inside the dialog), and the file's default unit is kept in the
 document and survives saving as .xlsx and .ods. Runs after dialogs(), which leaves "Số tiền" + "Công thức" chosen."""

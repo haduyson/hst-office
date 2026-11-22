@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Old-profile scenario, UNO half (bundled Python): every Tùy chọn ▸ HST Office page of the RUNNING office.
 
 The same checks as check-windows-options-pages.py: the pages built with their handlers outside the dialog

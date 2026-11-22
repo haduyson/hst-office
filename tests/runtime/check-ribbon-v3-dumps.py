@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Checks the ribbon layout dumps written by the real app against the v3 rules (ribbon_v3_rules.py).
 
 Usage: python3 tests/runtime/check-ribbon-v3-dumps.py --dumps DIR [--json OUT]

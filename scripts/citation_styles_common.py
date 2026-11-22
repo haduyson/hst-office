@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Building blocks of the citation style source (scripts/generate-citation-styles.py): option defaults,
 template element constructors and the JSON writer. The generated data/citation/styles/*.json are committed."""
 import json

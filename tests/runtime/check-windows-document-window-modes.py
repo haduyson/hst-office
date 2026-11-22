@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Window mode of each application (tabs or separate windows) on an INSTALLED HST Office (Windows, real desktop).
 
 The Windows counterpart of check-document-window-modes.py. Usage:

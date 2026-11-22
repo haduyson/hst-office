@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trợ lý AI: provider requests and answers, the private HTTPS helper's rules, settings, texts, commands state.
 No network: transports are recorded answers."""
 import json

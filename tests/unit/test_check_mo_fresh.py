@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Stale translation catalogues: scripts/l10n/check-mo-fresh.py and the invalidation rule of the local build scripts
 (a language's .mo/registry files are dropped when one of its .po files is newer than its oldest catalogue)."""
 import importlib.util

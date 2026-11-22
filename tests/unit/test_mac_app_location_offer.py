@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The once-per-version move offer: what is asked, what runs after each answer, and that no failure after "Chuyển"
 stays silent (no office needed: the question, the copy and the quit are recorded)."""
 import os

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Run VBA macros in an installed HST Office, headless, with the office's own Python (program\\python.exe).
 
     python.exe probe-vba-headless.py --soffice <program\\soffice.exe> --out <dir>

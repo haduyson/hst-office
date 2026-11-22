@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """In-process timing of the citation scan and updates, as the extension will run them.
 
 citations_fieldmark_perf.py copies this file into the test profile's user Python scripts and

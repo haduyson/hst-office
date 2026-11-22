@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF's two toolbar rows beside the banner are one grid (hst-pdf-toolbar-balance.patch): both rows share
 the group columns, the separators and the menu button run across both rows, so the rows end together."""
 import os

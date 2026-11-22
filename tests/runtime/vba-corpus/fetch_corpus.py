@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fetch the files of a sources list from their pinned commits into DEST/<sha256><ext>. Nothing runs here.
 
 Usage: fetch_corpus.py SOURCES.json DEST [--max-bytes N]. Writes DEST/index.json. When a list entry carries

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: a Writer document with an embedded Calc sheet survives save and reopen as .odt and .docx (installed build).
 
 Usage, in the user's own session (windows-own-session-task.ps1) with the office's Python:

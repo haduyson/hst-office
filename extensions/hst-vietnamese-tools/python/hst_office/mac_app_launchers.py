@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF where Launchpad, Spotlight and Finder see them (macOS).
 
 No uno here (tested in tests/unit); hst_office/mac_app_launchers_ui.py is the office side. The launcher apps ship

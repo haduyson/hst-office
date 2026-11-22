@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Run the Windows policy-key logic of configmgr (hst-own-policy-paths.patch) on Linux against an in-memory registry.
 #   tests/runtime/check-winreg-policy.sh [LO_SRC]     (default: $HST_LO_SRC or upstream/libreoffice)
 # Needs a built Linux tree (instdir/program/libuno_sal.so.3 and the generated UNO headers). winreg.cxx is copied with

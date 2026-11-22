@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows side of W16 (tooling Python only): window/process census, window control, hang dumps and launches.
 
 Routes are driven the way a person does it by open_routes_explorer.py. The census

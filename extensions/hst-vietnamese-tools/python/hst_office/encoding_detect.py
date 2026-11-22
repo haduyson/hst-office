@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Suggest a legacy encoding by testing whether converted words look like Vietnamese syllables (pure logic).
 
 The result is advice only: the wizard shows it, the user must still choose the encoding explicitly. Both TCVN3

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: the file picker for the recipient list, the sheet choice of a workbook with several sheets and
 "Tìm người nhận"."""
 from .dialogs import Dialog

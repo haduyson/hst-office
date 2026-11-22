@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Add only: atomic no-clobber creation, or append under a kernel write lease.
 
 NSS does not honor advisory module-file locks. Linux leases instead block its

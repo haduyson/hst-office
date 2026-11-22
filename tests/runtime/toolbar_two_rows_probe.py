@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Measure and judge the toolbars beside the window banner (Linux AT-SPI, Windows MSAA).
 
 hst-toolbar-two-rows.patch: in the toolbar user interfaces with one docked toolbar (Single toolbar, Sidebar, and

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Two even toolbar rows beside the window banner (hst-toolbar-two-rows.patch).
 
 vcl/inc/HstToolbarRows.hxx decides where the lone docked toolbar of the Single toolbar and Sidebar user

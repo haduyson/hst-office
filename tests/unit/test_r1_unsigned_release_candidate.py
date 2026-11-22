@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """R1 on a release candidate: signing runs on main only, so an unsigned dmg skips the Gatekeeper items (M1-M3) as
 needing a signed build and still gates the rest; a signed dmg that fails Gatekeeper, or an unsigned main build,
 fails the run."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Styles gallery on Writer's Home tab, by keyboard (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-style-gallery-keyboard.py [--instdir DIR] [--display :71] [--out DIR]

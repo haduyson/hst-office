@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Freeze probe, scroll/typing latency and AutoRecovery freeze for large_file_open_client.py (office Python, uno).
 
 Probe: a thread calls getPosSize() on a hidden window of its own every 0.1 s. That call needs the office's main lock

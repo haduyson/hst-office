@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """List, per ribbon tab, the commands reachable only through the tab's trailing block (its tab menu "Tab ▾" and the
 small icons beside it), and the block icons that duplicate a command shown elsewhere on the ribbon.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Drive "Cập nhật ngay" end to end in a real, installed HST Office (Linux and Windows; macOS: scripts/macos).
 
   <office python> update-e2e-drive.py --soffice <program/soffice[.exe]> --profile <dir> --out <report.json>

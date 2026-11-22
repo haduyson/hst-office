@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The macOS launcher probe (scripts/macos/app-launchers-probe.{sh,py}): its profile seeding, document counting, the
 .odb fixture and what the probe covers of the launchers HST Office copies to /Applications."""
 import importlib.util

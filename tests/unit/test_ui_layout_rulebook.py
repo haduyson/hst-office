@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Static lint of the HST dialog layout rulebook on the .ui files of the patched tree (coat tier 3).
 
 Rules (values from hst::design::layout, see plans/261120-0850-hst-ui-coat-tier2-3/reports/layout-rulebook.md):

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-mockup-compact.patch and hst-ribbon-mockup-compact-keytips.patch: the compact ribbon (Ctrl+F1) as the
 approved 1.0.2 mockup draws it (quick row, dropped page, pin) and its KeyTips as in the reference suite."""
 import os

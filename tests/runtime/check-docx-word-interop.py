@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check .docx details that matter when Word opens and saves HST Writer documents.
 
 Usage: python3 tests/runtime/check-docx-word-interop.py [--instdir upstream/libreoffice/instdir] [--out tests/output/docx-word-interop]

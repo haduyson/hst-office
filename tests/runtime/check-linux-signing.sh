@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # The Linux signing step (scripts/linux/sign-linux-packages.sh) against a THROWAWAY key generated inside an
 # auto-removed Ubuntu 22.04 container (the CI image), so the pipeline is proven before the owner creates the real key.
 #   tests/runtime/check-linux-signing.sh <installer-dir> <out-dir>

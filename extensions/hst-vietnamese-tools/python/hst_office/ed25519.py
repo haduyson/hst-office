@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure-Python Ed25519 (RFC 8032, section 6 "Ed25519 Python Illustration"), used to check update manifests.
 
 The office's bundled Python has no `cryptography` package, so the RFC reference code is kept here almost

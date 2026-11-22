@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Synthetic large documents for open-time measurements (scripts/perf/large-file-open.py).
 
     python large_file_fixtures.py <out-dir> [--rows N] [--pages N] [--slides N] [--pdf-pages N] [--only a,b] [--skip a,b]

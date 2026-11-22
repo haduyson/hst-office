@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Compact banner geometry (HstBannerGeometry.hxx after hst-ribbon-banner-compact.patch).
 
 Windows narrower than 1280 logical px show the 160x104 compact artwork, so the banner keeps a slot;

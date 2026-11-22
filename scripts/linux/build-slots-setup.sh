@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # One-time setup of the parallel local Linux build slots used by scripts/linux/local-build.sh --slot N.
 #   sudo scripts/linux/build-slots-setup.sh migrate     the single-tree layout /data/hst-office-build becomes
 #                                                       slot 1 (moves only, no copy, build state kept)

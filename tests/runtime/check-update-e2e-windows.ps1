@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # "Cập nhật ngay" end to end on a Windows test PC (TEST ONLY: replaces the installed HST Office).
 #   -Phase install  -OldMsi <msi> -NewMsi <msi>      (SSH session, elevated) remove HST Office, install <OldMsi> silently,
 #                                                    put <NewMsi> into the console user's update cache

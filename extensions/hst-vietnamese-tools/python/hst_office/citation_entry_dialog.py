@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The source form ("Nguồn tài liệu mới" / "Sửa nguồn tài liệu"): type, authors, the fields of that type, a
 preview of the bibliography entry, splitting a pasted reference into fields (offline), and the only two online
 actions of the citation manager, each run by its own button with a line beside it saying what is sent where:

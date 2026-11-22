@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Measurements of the multi-page template check, read from the exported files only (poppler and the DOCX XML).
 
 `pdf_problems` judges margins, page numbers, repeated header blocks, blank pages, contact details and fonts on every

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Commands keep their labels from 1485 px up, except in formatting groups (gap list G10), on gtk3 under Xvfb.
 
 Per app (HST Writer, Sheets, Slides, Draw), tab and width (1920, 1485): every button of the ribbon band that shows only

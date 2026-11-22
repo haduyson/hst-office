@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared helper of the recovery runtime checks (check-recovery-kill.py, check-profile-corruption.py,
 check-unsaved-documents.py): one HST Office with AutoRecovery on, documents driven over UNO, crashes injected with
 signals, the recovery dialogs answered with the pointer and the Return key (their default buttons: "Khôi phục mục đã

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Apply reviewer corrections to translated JSONL files.
 
 Usage: python3 scripts/l10n/apply-review.py work/l10n/done FIXES.jsonl [...]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure planning of "Đọc số thành chữ" over a column of cells (Sheets): which address the user typed, which rows get
 words, which are skipped and how many targets already hold data.
 

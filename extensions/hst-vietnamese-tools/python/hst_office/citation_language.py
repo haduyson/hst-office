@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Language of a reference and the language groups of Vietnamese bibliographies. Pure Python (no uno).
 
 The CSL ``language`` field (``vi``, ``en-US``, ``fr``…) decides the group; when it is empty HST guesses from the

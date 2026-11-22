@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Insert Table dialog of Slides and Draw is titled "Chèn bảng" in Vietnamese, never "Chèn tệp tin" (Insert File).
 
 The title is read as the user and a screen reader get it: the dialog window's text and its accessible name.

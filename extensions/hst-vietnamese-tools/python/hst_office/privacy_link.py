@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The "Chính sách quyền riêng tư" / "Privacy policy" link: Tùy chọn ▸ HST Office ▸ Cập nhật, the error report
 dialog and the citation source form (the About dialog has its own link, patches/libreoffice/hst-about-privacy-link.patch).
 

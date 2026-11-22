@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Quick Search over document types (pure logic), with the matching of "Tìm tính năng" (hst-feature-search.patch):
 case- and diacritic-folded, NFC and NFD alike, "đ" as "d", so "cong van", "ke hoach", "gm" and "giấy mời" all find theirs.
 """

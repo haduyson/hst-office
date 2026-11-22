@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Live part of the ribbon scorecard: drive one app on an X display and record what its ribbon shows.
 
 Usage (normally started by ribbon_scorecard.py, as the build user under dbus-run-session):

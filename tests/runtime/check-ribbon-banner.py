@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the HASON TECH banner in the ribbon of HST Writer, Sheets and Slides (gtk3, real GUI).
 
 Usage: python3 tests/runtime/check-ribbon-banner.py [--instdir upstream/libreoffice/instdir]

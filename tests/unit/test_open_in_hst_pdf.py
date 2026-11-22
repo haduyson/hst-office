@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """PDF ▸ Mở trong HST PDF (hst_office/open_in_hst_pdf.py): which file HST PDF shows, and the exported copy."""
 import os
 import sys

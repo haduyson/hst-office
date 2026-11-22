@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Compact ribbon (Ctrl+F1) of hst-ribbon-adaptive-compact.patch: quick command rows (data/ribbon/quick-rows.json and
 the header generated from it), the dropped page, the per-app state and the 32 px document tab strip."""
 import importlib.util

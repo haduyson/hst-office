@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Heavier 16 px ink of the colourful style: 1 px pens widen to 2 px only where the glyph has room."""
 from pathlib import Path
 import re

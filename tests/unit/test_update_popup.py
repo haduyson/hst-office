@@ -1,7 +1,10 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pop-up after the automatic check: once a day per version, waits for a busy start, falls back to the infobar."""
 import os
+import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -74,11 +77,12 @@ class Notify(unittest.TestCase):
         popup.show.assert_not_called()
         ui.notify.assert_not_called()
 
-    def test_waiting_is_bounded(self):
+    def test_waiting_is_bounded_and_never_covers_a_question(self):
         popup._busy.return_value = True
         popup.show.return_value = True
         popup.notify(mock.Mock(), RELEASE, "1.0.3", now=NOW, tries=popup.WAIT_TRIES)
-        popup.show.assert_called_once()
+        popup.show.assert_not_called()
+        ui.notify.assert_called_once()
 
     def test_no_second_popup_while_one_is_showing(self):
         shown = mock.Mock()
@@ -129,6 +133,26 @@ class Buttons(unittest.TestCase):
                 mock.patch.object(popup.diag_log, "exception") as logged:
             popup.run_action("ctx", RELEASE, "skip")
         logged.assert_called_once_with("update_popup")
+
+
+
+
+class Busy(unittest.TestCase):
+    """The check starts before the start-up questions: its pop-up waits while they run."""
+
+    def test_start_up_questions_count_as_busy(self):
+        from hst_office import startup_prompts
+        idle = types.SimpleNamespace(loading=lambda ctx: False)  # no document being imported
+        with mock.patch.dict(sys.modules, {"hst_office.welcome_job": idle}):
+            with mock.patch.dict(startup_prompts._CHAIN, {"running": True}):
+                self.assertTrue(popup._busy(mock.Mock()))
+            with mock.patch.dict(startup_prompts._CHAIN, {"running": False}):
+                self.assertFalse(popup._busy(mock.Mock()))
+
+    def test_open_extension_dialog_counts_as_busy(self):
+        from hst_office import dialog_registry
+        with mock.patch.object(dialog_registry, "OPEN", [object()]):
+            self.assertTrue(popup._busy(mock.Mock()))
 
 
 if __name__ == "__main__":

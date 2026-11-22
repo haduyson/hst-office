@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of "Chuyển mã" in Calc against a real HST Office (soffice runs as the build user, never root).
 
 Usage (the Xvfb display must already run; it is never started or stopped here):

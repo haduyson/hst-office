@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The offline user guide (extensions/hst-vietnamese-tools/help, opened by F1) ships inside the product:
 no GitHub or upstream-project names or links, no remote resources, every local link and image resolves."""
 import glob

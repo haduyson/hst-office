@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Công thức (OptionsDialog.xcu, dialogs/Formula.xdl): "tự chuyển khi mở", the office option
 MathType5ToMath (off by default) read by the imports and by formula_open_job. Saved on OK; Cancel keeps it."""
 import unohelper

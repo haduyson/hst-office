@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared helper for GUI runtime checks: one HST Office instance on an existing X display.
 
 Starts soffice (as the unprivileged build user when run as root, never as root) with a fresh

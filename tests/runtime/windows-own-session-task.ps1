@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Run one command line in the CALLING user's own interactive session (connected or disconnected) through a temporary
 # scheduled task. SSH runs in session 0, which has no desktop; GUI checks (run-check-windows.py --ui,
 # check-windows-nd30-wizard-fit.py) need a session. This never touches another user's (e.g. the console user's)

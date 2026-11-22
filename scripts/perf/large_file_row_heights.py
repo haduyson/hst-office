@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Row heights of spreadsheets after loading, to prove a change keeps them (run with the office's own Python).
 
     <office>/program/python large_file_row_heights.py --soffice <office>/program/soffice --profile <dir> FILE...

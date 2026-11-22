@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Picture and table style galleries (hst-picture-table-style-galleries*.patch).
 
 The pieces live in different files that must agree: the style table and the strings it names, the

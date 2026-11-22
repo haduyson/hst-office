@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Five Vietnamese slide themes with real masters, tables, notes and charts."""
 from .odf import NS, document, fonts, node, paragraph, xml
 from .slide_styles import build as style_document

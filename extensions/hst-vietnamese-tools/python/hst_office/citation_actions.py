@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The six citation commands (org.hst.office.vi:Citation*), called by actions.COMMANDS with an actions.Host.
 
 Every command that writes into the document refreshes all citations and the bibliography afterwards, inside the

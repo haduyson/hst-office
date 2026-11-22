@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A start by other software (headless, invisible, --accept, conversion, COM automation) skips the welcome dialog and the
 default-apps question; a person's start keeps every question. The command line is read from sal (osl_getCommandArg)."""
 import ctypes
@@ -94,10 +95,10 @@ class StartupPrompts(unittest.TestCase):
         self.assertEqual([name for name, _step in sp.for_automation(steps)], ["crash", "update_outcome"])
 
     def test_job_skips_welcome_and_default_apps_for_automation(self):
-        self.assertEqual(self.run_job(True), ["mac_move", "profile_repaired", "crash", "update_outcome", "update_check"])
+        self.assertEqual(self.run_job(True), ["update_check", "mac_move", "profile_repaired", "crash", "update_outcome"])
 
     def test_job_keeps_every_question_for_a_person(self):
-        self.assertEqual(self.run_job(False), list(sp.ORDER) + ["update_check"])
+        self.assertEqual(self.run_job(False), ["update_check"] + list(sp.ORDER))
 
 
 if __name__ == "__main__":

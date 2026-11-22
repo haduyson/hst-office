@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """scripts/macos/check-coexist-plists.py: HST's bundle declares nothing that clashes with LibreOffice."""
 import contextlib
 import importlib.util

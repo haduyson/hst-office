@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """When "Phiên bản trước" copies a file: in the background once the document is modified, kept at OnSave before
 the office writes; a bounded wait otherwise; skipped for a new file, a file over 100 MB, or with the feature off.
 A failure never reaches the save."""

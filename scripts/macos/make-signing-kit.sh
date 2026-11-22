@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Collect upstream's macOS signing inputs from a LibreOffice source tree into a "signing kit".
 #   make-signing-kit.sh <libreoffice-src> <kit-dir>
 # The kit holds solenv/bin/macosx-codesign-app-bundle and the *templates* of the entitlement and

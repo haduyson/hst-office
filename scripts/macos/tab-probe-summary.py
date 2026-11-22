@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Join UNO event timings with window samples: tab-probe-summary.py <out-dir> <mode> <pid>."""
 import csv
 import json

@@ -1,0 +1,295 @@
+HST Office: a selected picture keeps its Picture Format tab on a short ribbon tab row.
+
+1.0.3 made Writer's tab row longer (the Recently used tab and the AutoSave toggle at its start). Where the row is
+too short for all tabs, ImplPlaceTabs left off every tab past the room before the menu button, that is the run
+at the right end, and the contextual tab (Picture Format, Table Design, Shape Format...) always comes last: below
+about 1050 px at 100 % on Linux, and in a window of a MacBook's width, a selected picture showed its handles but
+no Picture Format tab, so its commands looked gone (they were only in the menu button's menu). 1.0.2 still
+showed the tab at 960 px.
+
+A short row now leaves off the tabs shown in every context first, from the right end (Extensions, Help, View...),
+then the contextual tabs, then the File button, and the tabs kept close up from the row start. Without a
+contextual tab nothing changes: the tabs left off are the run at the right end, as before. A tab left off stays
+reachable from the menu button's menu and the KeyTips (HstIsOffRow). The decision is a plain function in
+vcl/inc/HstRibbonTabsFit.hxx.
+
+License: the changed upstream files remain under their original license (MPL-2.0); the new files are HST's own work.
+Test: CppunitTest_vcl_hst_ribbon_tabs_fit.
+---
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -241,6 +241,7 @@
+     CppunitTest_vcl_hst_coat_controls2 \
+     CppunitTest_vcl_hst_menu_coat \
+     CppunitTest_vcl_hst_ribbon_coat \
++    CppunitTest_vcl_hst_ribbon_tabs_fit \
+     CppunitTest_vcl_hst_statusbar_coat \
+     CppunitTest_vcl_text \
+     CppunitTest_vcl_textlayout \
+--- /dev/null
++++ b/vcl/CppunitTest_vcl_hst_ribbon_tabs_fit.mk
+@@ -0,0 +1,23 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# This file is part of HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_ribbon_tabs_fit))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_ribbon_tabs_fit, \
++    vcl/qa/cppunit/hst/ribbon-tabs-fit-test \
++))
++
++$(eval $(call gb_CppunitTest_set_include,vcl_hst_ribbon_tabs_fit,\
++    $$(INCLUDE) \
++    -I$(SRCDIR)/vcl/inc \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_ribbon_tabs_fit, \
++    sal \
++))
++
++# vim: set noet sw=4 ts=4:
+--- /dev/null
++++ b/vcl/inc/HstRibbonTabsFit.hxx
+@@ -0,0 +1,51 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <cstddef>
++#include <cstdint>
++#include <vector>
++
++namespace hst::ribbon
++{
++/// HST Office: what a tab of the ribbon's tab row is worth when the row is too short for all of its tabs.
++/// A contextual tab (Picture Format, Table Design...) comes last in the row but is the one the user needs
++/// while the object is selected; the File button opens the backstage.
++enum class TabRank
++{
++    Plain, ///< a tab shown in every context (Home, Insert, View, Help...)
++    Contextual, ///< a tab shown only for the selection or the view mode
++    Kept, ///< the File button
++};
++
++/// Which of the row's visible tabs (in row order, with their widths) a row nRoom px wide leaves off: plain tabs go
++/// first, from the right end, then contextual ones, then kept ones, until the rest fits. With no contextual tab
++/// this is the run of tabs at the right end that does not fit. True = left off.
++inline std::vector<bool> tabsLeftOff(const std::vector<std::int64_t>& rWidths, const std::vector<TabRank>& rRanks,
++                                     std::int64_t nRoom)
++{
++    std::vector<bool> aOff(rWidths.size(), false);
++    std::int64_t nUsed = 0;
++    for (std::int64_t nWidth : rWidths)
++        nUsed += nWidth;
++    for (TabRank eRank : { TabRank::Plain, TabRank::Contextual, TabRank::Kept })
++    {
++        for (std::size_t i = rWidths.size(); i-- > 0 && nUsed > nRoom;)
++        {
++            if (!aOff[i] && i < rRanks.size() && rRanks[i] == eRank)
++            {
++                aOff[i] = true;
++                nUsed -= rWidths[i];
++            }
++        }
++    }
++    return aOff;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/qa/cppunit/hst/ribbon-tabs-fit-test.cxx
+@@ -0,0 +1,128 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++/* Which ribbon tabs a short tab row leaves off (vcl/inc/HstRibbonTabsFit.hxx): the widths are those of the
++   Writer ribbon of 1.0.3 at 100 % on Linux, where at 1024 px the row before the menu button and the search box's
++   magnifier has about 760 px for the tabs. 1.0.3 left off the picture tab first (it comes last): a selected
++   picture showed no Picture Format tab. */
++
++#include <sal/types.h>
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/TestFixture.h>
++#include <cppunit/extensions/HelperMacros.h>
++#include <cppunit/plugin/TestPlugIn.h>
++
++#include <HstRibbonTabsFit.hxx>
++
++#include <algorithm>
++#include <cstdint>
++#include <vector>
++
++namespace
++{
++using hst::ribbon::TabRank;
++
++// File, Home, Recently used, Insert, Design, Layout, References, Mailings, Review, View, Help, Extensions
++const std::vector<std::int64_t> WRITER = { 62, 70, 104, 46, 59, 59, 75, 58, 57, 44, 60, 89 };
++constexpr std::int64_t PICTURE = 98; // Picture Format
++
++std::vector<TabRank> ranks(bool bPicture)
++{
++    std::vector<TabRank> aRanks(WRITER.size(), TabRank::Plain);
++    aRanks.front() = TabRank::Kept;
++    if (bPicture)
++        aRanks.push_back(TabRank::Contextual);
++    return aRanks;
++}
++
++std::vector<std::int64_t> widths(bool bPicture)
++{
++    std::vector<std::int64_t> aWidths(WRITER);
++    if (bPicture)
++        aWidths.push_back(PICTURE);
++    return aWidths;
++}
++
++std::int64_t shown(const std::vector<std::int64_t>& rWidths, const std::vector<bool>& rOff)
++{
++    std::int64_t nSum = 0;
++    for (std::size_t i = 0; i < rWidths.size(); ++i)
++        nSum += rOff[i] ? 0 : rWidths[i];
++    return nSum;
++}
++
++class RibbonTabsFitTest : public CppUnit::TestFixture
++{
++public:
++    void testWideRowKeepsEveryTab()
++    {
++        const std::vector<bool> aOff = hst::ribbon::tabsLeftOff(widths(true), ranks(true), 2000);
++        for (bool bOff : aOff)
++            CPPUNIT_ASSERT(!bOff);
++    }
++
++    void testSelectedPictureKeepsItsTab()
++    {
++        const std::vector<std::int64_t> aWidths = widths(true);
++        const std::vector<bool> aOff = hst::ribbon::tabsLeftOff(aWidths, ranks(true), 760);
++        CPPUNIT_ASSERT_MESSAGE("the Picture Format tab stays on the row", !aOff.back());
++        CPPUNIT_ASSERT_MESSAGE("the File button stays on the row", !aOff.front());
++        // the tabs shown in every context go from the right end: Extensions, then Help
++        CPPUNIT_ASSERT(aOff[11]);
++        CPPUNIT_ASSERT(aOff[10]);
++        CPPUNIT_ASSERT(!aOff[1]); // Home
++        CPPUNIT_ASSERT(shown(aWidths, aOff) <= 760);
++    }
++
++    void testWithoutSelectionTheRightEndGoes()
++    {
++        // no contextual tab: the run of tabs at the right end that does not fit, as before
++        const std::vector<std::int64_t> aWidths = widths(false);
++        const std::vector<bool> aOff = hst::ribbon::tabsLeftOff(aWidths, ranks(false), 700);
++        std::int64_t nEnd = 0;
++        bool bOffSeen = false;
++        for (std::size_t i = 0; i < aWidths.size(); ++i)
++        {
++            if (aOff[i])
++                bOffSeen = true;
++            else
++            {
++                CPPUNIT_ASSERT_MESSAGE("a kept tab after a left-off one", !bOffSeen);
++                nEnd += aWidths[i];
++            }
++        }
++        CPPUNIT_ASSERT(nEnd <= 700);
++        CPPUNIT_ASSERT(nEnd + aWidths[std::size_t(std::count(aOff.begin(), aOff.end(), false))] > 700);
++    }
++
++    void testVeryShortRowStillFits()
++    {
++        // past the plain tabs the contextual tab goes, then the File button: no tab runs under the menu button
++        const std::vector<std::int64_t> aWidths = widths(true);
++        const std::vector<bool> aOff = hst::ribbon::tabsLeftOff(aWidths, ranks(true), 120);
++        CPPUNIT_ASSERT(aOff.back());
++        CPPUNIT_ASSERT(!aOff.front());
++        CPPUNIT_ASSERT(shown(aWidths, aOff) <= 120);
++        const std::vector<bool> aNone = hst::ribbon::tabsLeftOff(aWidths, ranks(true), 10);
++        CPPUNIT_ASSERT_EQUAL(std::int64_t(0), shown(aWidths, aNone));
++    }
++
++    CPPUNIT_TEST_SUITE(RibbonTabsFitTest);
++    CPPUNIT_TEST(testWideRowKeepsEveryTab);
++    CPPUNIT_TEST(testSelectedPictureKeepsItsTab);
++    CPPUNIT_TEST(testWithoutSelectionTheRightEndGoes);
++    CPPUNIT_TEST(testVeryShortRowStillFits);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(RibbonTabsFitTest);
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -46,6 +46,7 @@
+ 
+ #include <bitmaps.hlst>
+ #include <HstContextualKeepTab.hxx>
++#include <HstRibbonTabsFit.hxx>
+ #include <svdata.hxx>
+ #include <window.h>
+ 
+@@ -2790,13 +2791,42 @@
+     if (pHstSearch)
+     {
+         const tools::Long nRowEnd = nMaxWidth - 2 * nHstGap - std::lround(32 * fHstDpi);
++        // HST Office: the tabs shown in every context go first, from the right end, so a contextual tab (Picture
++        // Format, Table Design...), which comes last, stays on the row while its object is selected; the File
++        // button goes last. The tabs kept close up from the row start (HstRibbonTabsFit.hxx).
++        std::vector<ImplTabItem*> aHstItems;
++        std::vector<std::int64_t> aHstWidths;
++        std::vector<hst::ribbon::TabRank> aHstRanks;
+         for (auto & item : mpTabCtrlData->maItemList)
+         {
+-            if (item.m_bVisible && !item.maRect.IsEmpty() && item.maRect.Right() > nRowEnd)
++            if (!item.m_bVisible || item.maRect.IsEmpty())
++                continue;
++            aHstItems.push_back(&item);
++            aHstWidths.push_back(item.maRect.GetWidth());
++            aHstRanks.push_back(item.maTabName == hst::ribbon::FILE_TAB_NAME ? hst::ribbon::TabRank::Kept
++                                : item.mpTabPage && !item.mpTabPage->HasContext(vcl::EnumContext::Context::Any)
++                                    ? hst::ribbon::TabRank::Contextual
++                                    : hst::ribbon::TabRank::Plain);
++        }
++        const std::vector<bool> aHstOff
++            = hst::ribbon::tabsLeftOff(aHstWidths, aHstRanks, nRowEnd - nOffsetX + 1);
++        tools::Long nTabX = nOffsetX;
++        for (size_t i = 0; i < aHstItems.size(); ++i)
++        {
++            ImplTabItem& rItem = *aHstItems[i];
++            if (aHstOff[i])
+             {
+-                item.maRect = tools::Rectangle();
+-                item.mbFullVisible = false;
++                rItem.maRect = tools::Rectangle();
++                rItem.mbFullVisible = false;
++                mbSmallInvalidate = false;
++                continue;
+             }
++            if (rItem.maRect.Left() != nTabX)
++            {
++                rItem.maRect.SetPos(Point(nTabX, rItem.maRect.Top()));
++                mbSmallInvalidate = false;
++            }
++            nTabX += rItem.maRect.GetWidth();
+         }
+         nX = nOffsetX;
+         for (auto & item : mpTabCtrlData->maItemList)

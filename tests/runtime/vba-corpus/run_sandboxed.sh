@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Run macros from untrusted files in one disposable container: no network, not root, read-only root and
 # mounts, private tmpfs. Results come back as JSON lines on stdout only; nothing is writable from the host.
 #   run_sandboxed.sh IMAGE INSTDIR CORPUS_DIR JOBS.json OUT.jsonl [TIMEOUT_SECONDS]

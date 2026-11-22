@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-document-tab-switch-present-first.patch: on Windows a tab switch shows the new tab window cloaked until it is
 painted and presented, then uncloaks it and only then hides the previous tab (no blank frame, no desktop).
 GUI: tests/runtime/check-windows-tab-switch-flash.py (every presented frame, DXGI Desktop Duplication)."""

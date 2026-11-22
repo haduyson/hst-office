@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build queue dispatcher (scripts/build-queue-dispatcher.py): scheduling order, start failures, cancel, Windows
 slot pool and drain, and the outputs a Linux job returns. Fake runners instead of real builds."""
 import io

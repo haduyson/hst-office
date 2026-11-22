@@ -1,9 +1,19 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Office local build queue: agents submit builds themselves, a dispatcher runs them on the build slots.
 
   build-queue.sh submit --platform linux|windows --ref <branch|sha> [--priority N] [--no-package] [--modules a,b]
                         [--test "CppunitTest_sc_ucalc ..."]   (Linux) build, then run the test targets
-                                                  prints the job id (an existing identical job's id when deduplicated)
+                        [--integrator] [--force]
+                                                  prints the job id (an existing identical job's id when deduplicated);
+                                                  priority > 50 only for the integrator; a commit that only changes
+                                                  tests/ docs/ plans/ *.md since the branch's last build is refused
+                                                  (--force: integrator); a newer commit cancels the branch's queued job
+  build-queue.sh pin <id> --reason TEXT | unpin <id>   keep a done job's output out of retention (or release it)
+  build-queue.sh disk-report [--host H] [--refresh]   Windows hosts: free space and the largest D:\\hst-test folders
+                                                  (size, newest file, owner from the folder's .hst-owner file)
+  build-queue.sh retention [--dry-run]            apply output retention now; prints what is deleted and the space freed
+  build-queue.sh train add|remove|status|wait|start ...   build train (scripts/build_infra/queue_train_cli.py)
   build-queue.sh status <id> [--json]             state, slot/host, output, log
   build-queue.sh wait <id> [--timeout S]          blocks; prints the output path(s) (exit 0) or the log tail (exit 1);
                                                   test jobs: PASS/FAIL per target (exit 3 when a test failed)
@@ -14,21 +24,33 @@
   build-queue.sh cancel <id>                      queued: dropped at once; running: stopped by the dispatcher
   build-queue.sh drain <host> [--no-wait|--hold|--cancel] Windows host: no new jobs there, wait until it is idle, deploy the
                                                   current tools to it, resume (prints when done)
+  build-queue.sh slot list                        locked slots and slot cleans (slot_control.py)
+  build-queue.sh slot lock <slot> --reason TEXT   no new job on that one slot (a running job finishes); slot ids as
+                                                  in `list`: hst5:D:\\hst-build-s2, vm103:3, or a dev server number
+  build-queue.sh slot unlock <slot>
+  build-queue.sh slot clean <slot> --reason TEXT [--full] [--keep-locked] [--no-wait] [--timeout S]
+                                                  lock, wait until the slot is idle, clean it, unlock (unless it was
+                                                  locked before or --keep-locked). Windows: delete damaged object
+                                                  files (LNK1136); --full (Linux: required) deletes workdir+instdir
   build-queue.sh dispatch [--once]                the dispatcher (systemd unit hst-build-queue.service)
 
 State lives under HST_QUEUE_ROOT (default /data/hst-build-queue): jobs/<id>.json, logs/<id>.log, out/<id>/,
 config.json (optional overrides of DEFAULT_CONFIG). Jobs run by priority (higher first), then FIFO.
 Dedupe: a job with the same platform + commit + options that is queued, running, or done with its output still
-on disk is returned instead of a new one. Retention: the newest `retention_per_branch` finished outputs per
-platform and branch are kept; older outputs are deleted (their job records stay, marked output_deleted).
+on disk is returned instead of a new one. Retention (queue_rules.retention_victims): the newest
+`retention_per_branch` outputs per platform + branch + kind are kept, failed/cancelled/invalidated outputs and builds
+of commits merged into the integration branch go after a grace period; job records stay, marked output_deleted.
 
 """
 import argparse
 import json
+import os
 import sys
 
 from .queue_ops import cancel, drain, invalidate, submit
-from .queue_report import compare, describe, print_tests, wait
+from .queue_report import compare, describe, failure_errors, print_tests, wait
+from .queue_retention import apply_retention, pin
+from . import data_disk, queue_train_cli, slot_control
 from .queue_rules import order_key, parse_modules, parse_tests
 from .queue_store import ACTIVE, PLATFORMS, TERMINAL, QueueError, Store
 
@@ -38,10 +60,27 @@ def main(argv=None):
     s = sub.add_parser("submit")
     s.add_argument("--platform", required=True, choices=PLATFORMS)
     s.add_argument("--ref", required=True)
-    s.add_argument("--priority", type=int, default=0)
+    s.add_argument("--priority", type=int, default=None,
+                   help="default 0; integrator submits default to integrator_priority (60)")
     s.add_argument("--no-package", action="store_true")
     s.add_argument("--modules", default="")
     s.add_argument("--test", default="", help="Linux: test targets to run after the build (space/comma separated)")
+    s.add_argument("--test-name", help="with --test: run only this CppUnit test (CPPUNIT_TEST_NAME, e.g. TestTdf150606)")
+    s.add_argument("--gdb", action="store_true",
+                   help="with --test: run under gdb -batch; a crash logs `thread apply all bt full` in the test log")
+    s.add_argument("--integrator", action="store_true", help="the integrator's submit (priority above 50, --force)")
+    s.add_argument("--force", action="store_true", help="integrator: build even a tests/docs-only commit")
+    pn = sub.add_parser("pin")
+    pn.add_argument("id")
+    pn.add_argument("--reason", required=True)
+    up = sub.add_parser("unpin")
+    up.add_argument("id")
+    dk = sub.add_parser("disk-report")
+    dk.add_argument("--host")
+    dk.add_argument("--refresh", action="store_true", help="ask the host(s) now instead of the last saved report")
+    rt = sub.add_parser("retention")
+    rt.add_argument("--dry-run", action="store_true")
+    queue_train_cli.add_parser(sub)
     st = sub.add_parser("status")
     st.add_argument("id")
     st.add_argument("--json", action="store_true")
@@ -65,6 +104,21 @@ def main(argv=None):
     dr.add_argument("--timeout", type=int)
     dr.add_argument("--cancel", action="store_true", help="stop draining (or end a hold) and resume scheduling")
     dr.add_argument("--hold", action="store_true", help="stay idle after deploying (maintenance, reboot)")
+    sl = sub.add_parser("slot")
+    slsub = sl.add_subparsers(dest="slot_cmd", required=True)
+    slsub.add_parser("list")
+    sk = slsub.add_parser("lock")
+    sk.add_argument("slot")
+    sk.add_argument("--reason", required=True)
+    su = slsub.add_parser("unlock")
+    su.add_argument("slot")
+    sc = slsub.add_parser("clean")
+    sc.add_argument("slot")
+    sc.add_argument("--reason", required=True)
+    sc.add_argument("--full", action="store_true", help="delete workdir and instdir (the next build is a full one)")
+    sc.add_argument("--keep-locked", action="store_true", help="leave the slot locked after the clean")
+    sc.add_argument("--no-wait", action="store_true")
+    sc.add_argument("--timeout", type=int)
     d = sub.add_parser("dispatch")
     d.add_argument("--once", action="store_true")
     args = parser.parse_args(argv)
@@ -72,7 +126,8 @@ def main(argv=None):
     try:
         if args.cmd == "submit":
             job, dup = submit(store, args.platform, args.ref, args.priority, not args.no_package,
-                              parse_modules(args.modules), tests=parse_tests(args.test))
+                              parse_modules(args.modules), tests=parse_tests(args.test), force=args.force,
+                              integrator=args.integrator, test_name=args.test_name, gdb=args.gdb)
             if dup:
                 print(f"deduplicated: identical job {job['id']} is {job['state']}", file=sys.stderr)
             print(job["id"])
@@ -83,13 +138,16 @@ def main(argv=None):
                 print(json.dumps(job, indent=1, sort_keys=True))
             else:
                 print(describe(job))
-                for k in ("submitted_at", "started_at", "finished_at", "host", "error"):
+                for k in ("submitted_at", "started_at", "finished_at", "host", "error", "pinned", "train",
+                          "output_deleted_reason"):
                     if job.get(k):
                         print(f"  {k}: {job[k]}")
                 for p in job.get("output", []):
                     print(f"  output: {p}{' (deleted by retention)' if job.get('output_deleted') else ''}")
                 if job.get("tests") and job["state"] == "done":
                     print_tests(store, job, sys.stdout)
+                if job["state"] == "failed":
+                    print(failure_errors(job["log"]), end="")
                 print(f"  log: {job['log']}")
             return 0
         if args.cmd == "wait":
@@ -102,8 +160,17 @@ def main(argv=None):
             if args.json:
                 print(json.dumps(jobs, indent=1, sort_keys=True))
             else:
+                for line in disk_warnings(store):
+                    print(line, file=sys.stderr)
+                data_line = data_disk.warning(store, store.config())
+                if data_line:
+                    print(data_line, file=sys.stderr)
+                for slot, entry in sorted(slot_control.SlotControl(store).all().items()):
+                    if entry.get("locked"):
+                        print(f"slot {slot_control.describe(slot, entry)}", file=sys.stderr)
+                notes = linux_waits(store, jobs)
                 for job in jobs:
-                    print(describe(job))
+                    print(describe(job) + notes.get(job["id"], ""))
             return 0
         if args.cmd == "cancel":
             job = cancel(store, args.id)
@@ -113,10 +180,27 @@ def main(argv=None):
             job = invalidate(store, args.id, args.reason)
             print(f"{job['id']}: {job['error']}")
             return 0
+        if args.cmd in ("pin", "unpin"):
+            job = pin(store, args.id, args.reason if args.cmd == "pin" else None)
+            print(f"{job['id']}: {'pinned: ' + job['pinned'] if job.get('pinned') else 'unpinned'}")
+            return 0
+        if args.cmd == "disk-report":
+            return disk_report(store, args.host, args.refresh)
+        if args.cmd == "retention":
+            freed = apply_retention(store, dry_run=args.dry_run)
+            for job_id, reason, size in freed:
+                print(f"{job_id}  {size / 2**30:6.2f} GiB  {reason}")
+            verb = "would free" if args.dry_run else "freed"
+            print(f"{len(freed)} outputs, {verb} {sum(f[2] for f in freed) / 2**30:.2f} GiB")
+            return 0
+        if args.cmd == "train":
+            return queue_train_cli.run(store, args)
         if args.cmd == "compare":
             return compare(store, args.base, args.id)
         if args.cmd == "drain":
             return drain(store, args.host, not args.no_wait, timeout=args.timeout, cancel=args.cancel, hold=args.hold)
+        if args.cmd == "slot":
+            return slot_cmd(store, args)
         if args.cmd == "dispatch":
             from .dispatch_loop import run
             return run(store, once=args.once)
@@ -124,4 +208,93 @@ def main(argv=None):
         print(f"build-queue: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+def slot_cmd(store, args, out=sys.stdout):
+    if args.slot_cmd == "list":
+        entries = slot_control.SlotControl(store).all()
+        for slot, entry in sorted(entries.items()):
+            print(slot_control.describe(slot, entry), file=out)
+        if not entries:
+            print("no slot locked or cleaned", file=out)
+        return 0
+    if args.slot_cmd == "lock":
+        slot, entry = slot_control.lock(store, args.slot, args.reason)
+        print(f"{slot}: locked (no new job; a running one finishes)", file=out)
+        return 0
+    if args.slot_cmd == "unlock":
+        slot, _entry = slot_control.unlock(store, args.slot)
+        print(f"{slot}: unlocked", file=out)
+        return 0
+    slot, entry = slot_control.request_clean(store, args.slot, args.reason, full=args.full,
+                                             keep_locked=args.keep_locked)
+    print(f"{slot}: locked; the dispatcher cleans it{' (--full)' if args.full else ''} once no job runs there"
+          f"{', then unlocks it' if entry['clean']['unlock_after'] else '; it stays locked'}", file=out)
+    if args.no_wait:
+        return 0
+    return slot_control.wait_clean(store, slot, timeout=args.timeout, out=out)
+
+
+def disk_warnings(store, max_age=7200):
+    """Low-disk warnings of Windows hosts from their last report (shown above `list`)."""
+    import time
+    cfg = store.config()
+    try:
+        with open(os.path.join(store.root, "windows-disk.json"), encoding="utf-8") as f:
+            reports = json.load(f)
+    except (FileNotFoundError, ValueError):
+        return []
+    return [f"WARNING {h}: D: {r['d_free_gib']} GiB free (< {cfg['windows_warn_free_gib']}); "
+            f"`build-queue.sh disk-report --host {h}`" for h, r in sorted(reports.items())
+            if r.get("d_free_gib", 1e9) < cfg["windows_warn_free_gib"] and time.time() - r.get("fetched", 0) < max_age]
+
+
+def disk_report(store, host=None, refresh=False, out=sys.stdout):
+    cfg = store.config()
+    hosts = sorted({s["host"] for s in cfg["windows_slots"]})
+    if host and host not in hosts:
+        raise QueueError(f"unknown Windows host {host!r}; known: {', '.join(hosts)}")
+    reports = {}
+    if refresh:
+        from .dispatch_windows import WindowsRunner
+        runner = WindowsRunner(store, cfg)
+        for h in [host] if host else hosts:
+            try:
+                reports[h] = runner.disk_report(h)
+            except (RuntimeError, OSError, ValueError) as exc:
+                print(f"{h}: disk report failed: {exc}", file=out)
+    else:
+        try:
+            with open(os.path.join(store.root, "windows-disk.json"), encoding="utf-8") as f:
+                reports = {h: r for h, r in json.load(f).items() if not host or h == host}
+        except (FileNotFoundError, ValueError):
+            reports = {}
+        if not reports:
+            print("no saved report; use --refresh", file=out)
+    for h, r in sorted(reports.items()):
+        print(f"{h}: D: {r['d_free_gib']} GiB free, C: {r['c_free_gib']} GiB free (taken {r['taken']})", file=out)
+        for d in r.get("folders", []):
+            print(f"  {d['gib']:8.2f} GiB  {d['newest'][:16]}  {d.get('owner') or '-':<20} D:\\hst-test\\{d['name']}",
+                  file=out)
+    return 0
+
+
+def linux_waits(store, jobs):
+    """{job id: note} for queued Linux jobs when only remote hosts build Linux: "waiting for vm103 (...)"."""
+    cfg = store.config()
+    if cfg.get("linux_local_enabled", True):
+        return {}
+    from .remote_host import HostStates
+    hosts = [h for h in cfg.get("linux_remote_hosts", []) if h.get("enabled", True)]
+    if not hosts:
+        return {j["id"]: "  waiting: no Linux build host enabled" for j in jobs
+                if j["platform"] == "linux" and j["state"] == "queued"}
+    parts = []
+    for h in hosts:
+        busy = sum(1 for j in jobs if j["state"] == "running" and j.get("host") == h["name"])
+        state = HostStates(store).get(h["name"]).get("state", "online")
+        slots = h.get("slots", 2)
+        parts.append(f"{h['name']} OFFLINE" if state == "offline" else f"{h['name']} {busy}/{slots} slots busy")
+    note = f"  waiting for {' / '.join(h['name'] for h in hosts)} ({', '.join(parts)})"
+    return {j["id"]: note for j in jobs if j["platform"] == "linux" and j["state"] == "queued"}
 

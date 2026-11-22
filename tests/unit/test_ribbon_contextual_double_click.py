@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A double-click on an object opens its contextual ribbon tab (hst-ribbon-contextual-double-click.patch) and
 HST Draw's "Xoay trang" (hst-ribbon-ux-impress-draw-commands.patch, placed by hst-ribbon-ux-impress-draw.patch).
 Reads the patches only."""

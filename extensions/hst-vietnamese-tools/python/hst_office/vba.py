@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Macro VBA" (HST menu, ribbon, Alt+F11): open the Basic IDE on the VBA module of the current document.
 
 Works in HST Writer and Sheets (menu, ribbon, Alt+F11) and in HST Slides and Draw (Alt+F11 only: macros

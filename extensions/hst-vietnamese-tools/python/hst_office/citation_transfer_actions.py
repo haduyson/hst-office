@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Import references into the user's library (RIS, BibTeX, CSL-JSON, EndNote XML, PubMed, EndNote tagged) with a
 preview of the "sửa tên Việt" corrections, and export the library, a selection or a document's sources (RIS,
 BibTeX, CSL-JSON). Files are read and written only where the user picks them."""

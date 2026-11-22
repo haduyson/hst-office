@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Windows side of scripts/perf/large-file-open-local.sh: unpack the MSI as an administrative image (nothing is
 # installed) and run large-file-open.py with the image's own Python. Everything stays under the test root.
 #   large-file-open-windows.ps1 <root> <label> <msi file name> [harness options... | --prepare (unpack only)]

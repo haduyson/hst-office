@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the KeyTips of the ribbon on a real GUI (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-keytips.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]

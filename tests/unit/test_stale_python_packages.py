@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows tree sync: a package filelist that delivers into another python-core directory than the tree's Python
 tarball is dropped, so make delivers it again (libffi-8.dll must sit next to _ctypes.pyd of the bundled Python)."""
 from pathlib import Path

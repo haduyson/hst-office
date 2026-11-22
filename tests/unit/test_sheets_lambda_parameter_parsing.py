@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Sheets reads LAMBDA/LET parameter lists typed with ';' under a ',' separator, and a typed optional
 parameter [b] stays optional in .xlsx and .ods (hst-sheets-lambda-parameter-parsing.patch).
 

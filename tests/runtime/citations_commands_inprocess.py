@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """In-process checks of the six citation commands (runs inside the office through the script provider; see
 check-citations-commands.py). The real command code runs; only the dialogs and message boxes are replaced by
 recorders, so no window is needed. Returns JSON: [{"check", "status", "detail"}]."""

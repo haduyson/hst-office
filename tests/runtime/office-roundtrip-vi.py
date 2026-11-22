@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Open/save round trip with Vietnamese text in an installed HST Office (run with the office's bundled python).
 
   <office>/program/python office-roundtrip-vi.py <workdir> <office command...>

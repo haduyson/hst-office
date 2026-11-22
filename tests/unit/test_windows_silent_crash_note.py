@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: a crash the office's own handler ends with exit(255) leaves no Windows event; the handler's fault note
 (patch hst-windows-silent-crash-note) makes the next start report it as a crash instead of "not closed"."""
 import os

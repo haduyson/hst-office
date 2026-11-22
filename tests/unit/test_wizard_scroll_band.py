@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The scrolling form of a dialog taller than the work area (wizard_scroll_band), and the ND30 wizard's compact
 layout at 1366x768 with 125 % scaling: buttons and check boxes stay in view, every field is reachable by scrolling
 and by Tab / Shift+Tab. Uses the fake dialog of test_nd30_wizard_model_order."""

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """KeyTips and shortcuts of the familiar office suite on Windows with real key presses (the Windows key matrix).
 
 Usage (console session, under C:\\hst-test\\console-lock.txt; with the office's own python.exe):

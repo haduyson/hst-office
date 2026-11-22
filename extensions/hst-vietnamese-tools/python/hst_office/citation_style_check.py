@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Validate an HST citation style file (JSON) so a mistake names the file and the key instead of failing later.
 
 Template elements (a layout is a list of them) — exactly one of:

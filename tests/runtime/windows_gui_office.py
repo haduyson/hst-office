@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One installed HST Office started with its own profile for the Windows GUI checks (the office's python.exe, so
 `import uno` works). Nothing here starts or stops anything but the office it started itself: its soffice.bin
 processes are the ones whose -env:UserInstallation is this office's private profile (windows_gui_processes); while

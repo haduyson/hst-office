@@ -38,7 +38,7 @@ Chi tiết: [docs/UPSTREAM_BASELINE.md](docs/UPSTREAM_BASELINE.md), [docs/BUILD_
 
 ## Giấy phép & ghi nhận
 
-HST Office dựa trên LibreOffice (MPL-2.0) của The Document Foundation; mã HST mới theo [AGPL-3.0](LICENSE); mẫu văn bản CC BY 4.0. Xem [NOTICE.md](NOTICE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [docs/LICENSE_AUDIT.md](docs/LICENSE_AUDIT.md).
+HST Office là phần mềm độc quyền của HASON TECH, sử dụng miễn phí theo [Điều khoản sử dụng phần mềm HST Office](LICENSE); mã do HASON TECH viết mang SPDX `LicenseRef-HST-Proprietary`. HST Office dựa trên LibreOffice của The Document Foundation: các tệp LibreOffice (kể cả tệp HST đã sửa trong `patches/libreoffice/`) giữ MPL-2.0 hoặc giấy phép ghi trong header, từ điển `vi` giữ GPLv2, mẫu văn bản CC BY 4.0. Các bản 1.0.0–1.0.3 đã phát hành mã HST theo [AGPL-3.0](LICENSES/historical/README.md). Xem [NOTICE.md](NOTICE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [docs/LICENSE_AUDIT.md](docs/LICENSE_AUDIT.md).
 
 ## Liên hệ
 

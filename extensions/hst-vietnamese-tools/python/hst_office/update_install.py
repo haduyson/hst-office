@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO flow of "Cập nhật ngay": progress dialog -> verified installer -> question -> helper + normal office shutdown.
 
 Never silent: the download starts on the user's click, the install only after the user answers "Cập nhật ngay" to
@@ -6,22 +7,21 @@ Never silent: the download starts on the user's click, the install only after th
 The office is closed through Desktop.terminate(), so modified documents get the standard save prompts and Cancel
 there aborts the update (the helper, started before terminate, is stopped then, without relaunching anything).
 A failed install is reported at the next start (update_outcome). On macOS a bundle that cannot be replaced (the .dmg,
-an App Translocation path) is updated into /Applications instead, and that copy is opened (mac_app_location).
+an App Translocation path) is updated into /Applications instead, and that copy is opened (mac_app_location); the
+office quits only once the helper has checked and copied the new app (update_helper_ready).
 """
 import os
 import platform
-import threading
-import time
-
 from . import update_config
+from . import update_guard as guard
+from . import update_helper_ready as ready
 from . import update_helper_cmd as cmd
 from . import update_installer as installer
 from . import update_launch as launch
 from . import update_linux_install as linux_install
 from . import update_resume as resume
 from . import update_ui as ui
-from .update_download import DownloadCancelled
-from .update_prepare import PrepareError, prepare
+from .update_install_progress import _download_dialog
 from .update_install_ui import _ask, _live_peer, needs_password, office_paths  # noqa: F401 - patched by tests as update_install.*
 from .update_texts import texts
 from . import diag_log
@@ -29,10 +29,6 @@ from . import diag_log
 DRY_RUN_ENV = "HST_UPDATE_DRY_RUN"  # test packages only (update_test_mode); release packages ignore it
 NOTES_FALLBACK = "https://office.hasontech.vn/#tai-ve"
 OWN_DIALOG_TURNS = 50  # main-thread turns to wait for ended dialogs to leave their modal loops
-
-
-def _size(n):
-    return "%.1f MB" % (n / 1048576.0)
 
 
 def manual_download(ctx):
@@ -46,54 +42,7 @@ def fail(ctx, peer, code):
         manual_download(ctx)
 
 
-def _download_dialog(ctx, peer, info, proxy):
-    """Progress dialog with Cancel around the worker thread; returns the prepare() result or a PrepareError code."""
-    from .dialogs import CANCEL, Dialog
-    TEXT = texts(ctx)
-    dialog = Dialog(ctx, TEXT["progress_title"], 260, 56)
-    label = dialog.label("status", TEXT["checking"], 8, 8, 244)
-    bar = dialog._add("ProgressBar", "bar", 8, 22, 244, 10, ProgressValueMin=0, ProgressValueMax=100, ProgressValue=0)
-    dialog.button("cancel", TEXT["cancel"], 206, 38, 46, kind=CANCEL)
-    outcome, stop, closed, last = {}, threading.Event(), threading.Event(), [0.0]
-
-    def progress(done, total):
-        now = time.monotonic()
-        if done < total and now - last[0] < 0.2:
-            return
-        last[0] = now
-        percent = int(done * 100 / total) if total else 0
-
-        def show():
-            label.Label = TEXT["downloading"] % (percent, _size(total))
-            bar.ProgressValue = percent
-        ui.on_main_thread(ctx, show)
-
-    def work():
-        try:
-            outcome["result"] = prepare(info, proxy, progress, stop.is_set)
-        except DownloadCancelled:
-            outcome["cancelled"] = True
-        except PrepareError as exc:
-            print("HST update install: %s" % exc, flush=True)
-            outcome["code"] = exc.code
-        except Exception:  # noqa: BLE001 - never let the worker die silently
-            diag_log.exception("update_install")
-            outcome["code"] = "err_network"
-        while not closed.is_set():  # a request to end before the modal loop runs is lost: repeat until it is closed
-            ui.on_main_thread(ctx, lambda: None if closed.is_set() else dialog.end(1))
-            closed.wait(0.3)
-    threading.Thread(target=work, name="hst-update-download", daemon=True).start()
-    try:
-        finished = dialog.execute(peer)
-    finally:
-        closed.set()
-    if not finished:  # Cancel (or closed): the worker notices, removes its partial file and stops
-        stop.set()
-        return None
-    return outcome
-
-
-def launch_and_quit(ctx, result, info):
+def launch_and_quit(ctx, result, info, peer=None):
     """Start the helper (it waits for this process to exit), then close the office the normal way.
 
     True when the office is quitting; False when it stays open (Cancel at a save prompt, or a window that refused to
@@ -109,9 +58,14 @@ def launch_and_quit(ctx, result, info):
         from . import mac_app_location
         target = mac_app_location.update_target(bundle)
     dry = info.get("test_mode") and bool(os.environ.get(DRY_RUN_ENV))
+    notices = None
+    if system == "Darwin":  # shown by the helper after the office closed, in the office's language
+        TEXT = texts(ctx)
+        notices = {name: TEXT["helper_" + name] for name in cmd.MAC_NOTICES}
     helper = cmd.build_helper(system, pid=os.getpid(), installer=result["path"], sha256=result["entry"]["sha256"], soffice=soffice, log=launch.log_path(cache),
                               dry_run=bool(dry), app_dest=target, app_origin=bundle if target != bundle else None,
-                              release_from=info["release"], release_to=result["release"]["version"], linux_kind=linux_kind)
+                              release_from=info["release"], release_to=result["release"]["version"], linux_kind=linux_kind,
+                              notices=notices)
     if not update_config.settings(ctx)["AllowInstall"]:  # the policy may have changed since the click
         return None
     argv = cmd.argv(helper, launch.write_helper(helper, cache))
@@ -122,13 +76,24 @@ def launch_and_quit(ctx, result, info):
         diag_log.exception("update_install")
     closing = False
     try:
+        # Before the helper starts: an office opened while it installs quits again (update_guard); the helper removes
+        # the lock when it ends.
+        guard.write_lock(cache)
+
+        def started(pid):
+            guard.write_lock(cache, helper=pid)
         if system == "Windows" and not dry:  # elevated now, while the office is still the window the user looks at
-            closing = launch.elevate_and_quit(ctx, argv, cache)
+            closing = launch.elevate_and_quit(ctx, argv, cache, on_started=started)
+        elif system == "Darwin":  # quits once the helper has checked and copied the new app (update_helper_ready)
+            ready.discard(cache)
+            closing = launch.spawn_and_quit(ctx, argv, system, on_started=started,
+                                            before_quit=lambda proc: ready.wait_with_dialog(ctx, peer, proc, cache))
         else:
-            closing = launch.spawn_and_quit(ctx, argv, system)
+            closing = launch.spawn_and_quit(ctx, argv, system, on_started=started)
     finally:
         if not closing:  # Cancel in a save prompt (or an error): nothing is updated, the file stays for later
             resume.discard(cache)
+            guard.remove_lock(cache)
     return closing
 
 
@@ -153,10 +118,16 @@ def _install(ctx, peer, result, info, turns):
         ui.on_main_thread(ctx, lambda: install(ctx, peer, result, info, turns + 1))
         return
     try:
-        closing = launch_and_quit(ctx, result, info)
+        closing = launch_and_quit(ctx, result, info, peer)
     except launch.ElevationDeclined:  # No at the administrator question: the office stays open
         diag_log.info("update_install", "administrator rights declined")
         return fail(ctx, _live_peer(ctx, peer), "err_elevation")
+    except ready.PrepareCancelled:  # Cancel while the helper prepared the update: the office stays open
+        diag_log.info("update_install", "update cancelled while it was prepared")
+        return None
+    except ready.HelperFailed as exc:  # macOS: a check or the copy failed before the quit
+        diag_log.info("update_install", "the helper failed before the quit: %s" % exc.code)
+        return fail(ctx, _live_peer(ctx, peer), ready.message_key(exc.code))
     except Exception:  # noqa: BLE001 - helper could not be written or started
         diag_log.exception("update_install")
         return fail(ctx, _live_peer(ctx, peer), "err_launch")

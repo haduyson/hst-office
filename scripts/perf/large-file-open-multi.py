@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Several workbooks opened at once (as by selecting them in a file manager and pressing Enter), Windows only.
 
     python large-file-open-multi.py --soffice <soffice.exe> --profile <dir> --out <file.jsonl> --label L

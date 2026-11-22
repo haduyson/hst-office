@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Optional Developer ID signing + notarization of an unsigned HST Office dmg (gated job in
 # .github/workflows/desktop-macos.yml, GitHub environment "macos-signing").
 #   sign-notarize.sh --enabled              print enabled=true|false (all secrets non-empty?)

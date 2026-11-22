@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build queue state on disk: configuration defaults, job records and drain state under HST_QUEUE_ROOT.
 """
 import contextlib
@@ -9,17 +10,56 @@ import re
 import time
 
 QUEUE_ROOT = os.environ.get("HST_QUEUE_ROOT", "/data/hst-build-queue")
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Git repository used to resolve refs and diffs (HST_QUEUE_REPO: tests point it at a scratch repository).
+REPO = os.environ.get("HST_QUEUE_REPO") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PLATFORMS = ("linux", "windows")
 ACTIVE = ("queued", "running")
 TERMINAL = ("done", "failed", "cancelled")
 REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 MODULE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,79}$")
 # What local-build.sh --test accepts: unit/integration test targets that run headless in the slot chroot.
-TEST_RE = re.compile(r"^((CppunitTest|PythonTest)_[A-Za-z0-9_]{1,100}|[a-z0-9_]{1,40}\.(check|unitcheck|slowcheck|subsequentcheck))$")
+TEST_RE = re.compile(r"^((CppunitTest|PythonTest)_[A-Za-z0-9][A-Za-z0-9_-]{0,99}|[a-z0-9_]{1,40}\.(check|unitcheck|slowcheck|subsequentcheck))$")
+TEST_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_:]{0,199}$")   # CPPUNIT_TEST_NAME (local-build.sh --test-name)
 ID_RE = re.compile(r"^q\d{6}-\d{6}-[0-9a-f]{4}$")
 DEFAULT_CONFIG = {
-    "retention_per_branch": 3,
+    # Retention (queue_rules.retention_victims): newest outputs kept per platform + branch + job kind; train builds
+    # are one group; failed/cancelled/invalidated outputs and builds of commits already merged into the integration
+    # branch go after a grace period. Pinned jobs and jobs an active train still uses are never deleted.
+    "retention_per_branch": 2,
+    "retention_trains": 3,
+    "retention_failed_hours": 6,
+    "retention_merged_hours": 12,
+    # Below this much free disk (the Linux admission floor is 17 GiB) retention keeps 1 per group, no grace.
+    "retention_pressure_free_gib": 22,
+    # The integration branch (trains are built on it; merged = an ancestor of it) and who counts as the integrator:
+    # refs matching integrator_refs or `submit --integrator`. Everyone else is capped at agent_max_priority.
+    "integration_branch": "rc/1.0.2-batch5",
+    "integrator_refs": ["rc/1.0.2-batch*"],
+    "agent_max_priority": 50,
+    # Pristine LibreOffice tree of the current base: the patch lint (queue_patch_lint.py) checks that -p1 paths of new
+    # or changed patches land under one of its top-level directories (or on one of its root files).
+    "lo_reference_tree": "/data/hst-upstream/libreoffice-26.8.3.1",
+    # An integrator submit without --priority: above every agent job, below the trains.
+    "integrator_priority": 60,
+    # Build train (queue_train*.py): the integration branch + ready branches merged into train/<prefix>NNN, one build
+    # per platform. Numbers count per prefix (a new prefix starts at 001).
+    "train_enabled": True,
+    "train_prefix": "train/1.0.2-",
+    # Tests the Linux build of every train runs (plus the targets members declare with `train add --test`); a branch
+    # passes only when they pass. A target that also fails on the integration branch is reported, never blamed.
+    # Empty list and no declared tests: build-only trains.
+    "train_tests": ["CppunitTest_sw_core_layout", "CppunitTest_sw_ooxmlexport", "CppunitTest_sc_ucalc_formula",
+                    "CppunitTest_sc_cond_format", "CppunitTest_sd_import_tests", "CppunitTest_starmath_qa_cppunit"],
+    "train_interval_minutes": 20,
+    # Trains built side by side (each on its own base snapshot) when no LibreOffice file is shared between them.
+    "train_max_concurrent": 2,
+    "train_min_branches": 4,
+    "train_max_branches": 8,
+    "train_priority": 70,
+    "train_confirm_priority": 40,
+    "train_bisect_rounds": 2,
+    "train_max_attempts": 3,
+    "train_keep_days": 2,
     "linux_max_jobs": 20,
     # Module builds are small and mostly link-bound: a lower cap gives a smaller memory budget (6.4 GiB at -j6),
     # so three fit beside each other under the admission rule (MemAvailable >= budgets + 8 GiB) on ~28 GiB free.
@@ -27,10 +67,30 @@ DEFAULT_CONFIG = {
     "remote_py": "/home/wt-realwin-102/tests/realwin/remote.py",
     # Windows slot pool: one entry per slot; a slot's root holds its own repo/lo/stage/pristine trees.
     "windows_slots": [
-        {"host": "hst4", "root": "D:\\hst-build", "jobs": 28},
+        {"host": "hst4", "root": "D:\\hst-build", "jobs": 24},   # jobs: threads - 4 (keeps the PC responsive)
     ],
+    # Remote Linux build hosts (dispatch_remote_linux.py), e.g. VM103:
+    #   {"name": "vm103", "address": "192.168.1.166", "key": "/root/.ssh/hst-vm103_ed25519",
+    #    "known_hosts": "/data/hst-build-queue/known_hosts-vm103", "slots": 2, "total_jobs": 12, "max_jobs": 12,
+    #    "min_free_gib": 15, "ccache_max": "10G", "enabled": true}
+    "linux_remote_hosts": [],
+    # false: no new Linux job is admitted on the dev server's slots; Linux builds run on linux_remote_hosts only.
+    "linux_local_enabled": True,
+    "remote_poll_seconds": 30,
+    "remote_offline_seconds": 300,
+    "remote_job_timeout_hours": 6,
     "poll_seconds": 10,
     "windows_poll_seconds": 60,
+    # A Windows slot whose drive has less than windows_min_free_gib free gets no job (it would fail at once);
+    # below windows_warn_free_gib the dispatcher warns (journal + alerts.log) with the largest D:\hst-test folders.
+    "windows_min_free_gib": 15,
+    "windows_warn_free_gib": 25,
+    # Below data_warn_free_gib on the queue's own disk (/data of the dev server) the dispatcher warns (journal +
+    # alerts.log, hourly, with the largest /data consumers) and `list` shows it, well before retention pressure
+    # (retention_pressure_free_gib) and the 15-17 GiB floors where builds stop.
+    "data_warn_free_gib": 25,
+    # A cancelled Linux job still running this long after the TERM gets its make scopes killed (dispatch_loop).
+    "cancel_kill_after_seconds": 120,
 }
 
 

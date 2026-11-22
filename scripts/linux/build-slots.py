@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Admission controller of the parallel local Linux build slots (scripts/linux/local-build.sh --slot N).
 
 Stable entry point used by local-build.sh and the build queue dispatcher; the code and the full usage are in

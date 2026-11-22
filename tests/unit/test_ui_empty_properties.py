@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """No empty <property> in a .ui file of the patch series (hst-backstage-page-allocation.patch).
 
 VclBuilder (Windows, macOS, gen) mis-nests the siblings after an object with a self-closing property such as

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """When to copy a document file into the "Phiên bản trước" store, without stalling the office's UI thread.
 
 The copy must hold the bytes that are on disk just before a save replaces them. The office announces a save with

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One module per object-model probe in one .xlsm and one .docm, so a syntax gap stays in its module. Usage: make_object_model_probe.py OUTDIR JOBS.json"""
 import json
 import os

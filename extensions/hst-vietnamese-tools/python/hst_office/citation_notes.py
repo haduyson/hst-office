@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Note styles (Chicago notes and bibliography): each citation cluster is the text of one footnote.
 
 Position of a cite, in document order: the first cite of a work prints the full note; a later one prints the short

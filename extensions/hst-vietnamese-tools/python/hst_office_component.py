@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO component entry point registered in META-INF/manifest.xml (application/vnd.sun.star.uno-component;type=Python).
 
 The office loads this file the first time it needs any HST service, and the first one is the crash job at OnStartApp,
@@ -25,6 +26,7 @@ SERVICES = (
     ("dispatch", "Handler", "org.hst.office.vi.DispatchProvider", PROTOCOL_HANDLER),
     ("welcome_job", "WelcomeJob", "org.hst.office.vi.WelcomeJob", JOB),
     ("update_job", "UpdateCheckJob", "org.hst.office.vi.UpdateCheckJob", JOB),
+    ("update_guard", "UpdateGuardJob", "org.hst.office.vi.UpdateGuardJob", JOB),
     ("update_handler", "UpdateHandler", "org.hst.office.vi.UpdateDispatchProvider", PROTOCOL_HANDLER),
     ("mail_merge_handler", "MailMergeHandler", "org.hst.office.vi.MailMergeDispatchProvider", PROTOCOL_HANDLER),
     ("mail_merge_menu", "MailMergeMenu", "org.hst.office.vi.MailMergeMenu", ("com.sun.star.frame.PopupMenuController",)),

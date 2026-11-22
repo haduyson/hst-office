@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Mở tài liệu ▸ "Lối tắt ứng dụng" (dialogs/DefaultApps.xdl, options_page.py).
 
 macOS: "Thêm vào Dock" pins HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF, and "Gỡ biểu tượng ứng dụng" / "Thêm lại biểu tượng

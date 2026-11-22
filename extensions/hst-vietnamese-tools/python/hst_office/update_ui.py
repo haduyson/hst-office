@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Office side of the update check: settings, proxy, main-thread hand-off, infobar and result dialog.
 
 Settings: /org.openoffice.Office.HSTUpdate in the core configuration (AutoCheck, ManualCheck, CheckIntervalHours,
@@ -98,7 +99,7 @@ def show_infobar(frame, release, installed):
             controller.removeInfobar(INFOBAR_ID)
         buttons = []
         actions = (("install", "Install"),) if can_install(uno.getComponentContext(), release) else ()
-        for key, cmd in actions + (("download", "Download"), ("notes", "Notes"), ("skip", "Skip")):
+        for key, cmd in actions + (("download", "Download"), ("notes", "Notes"), ("later", "Later"), ("skip", "Skip")):
             pair = uno.createUnoStruct("com.sun.star.beans.StringPair")
             pair.First, pair.Second = TEXT[key], PROTOCOL + cmd
             buttons.append(pair)

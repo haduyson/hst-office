@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Registered XJob service: nonblocking JSON snapshots for the native ribbon, shared by every app."""
 import uno
 import unohelper

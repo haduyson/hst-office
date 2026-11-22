@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Owner rule: every shortcut and KeyTip matches the reference suite 100 %, checked against the parity data (no GUI).
 
 Usage: python3 tests/runtime/check-ribbon-parity-data.py [--out DIR]

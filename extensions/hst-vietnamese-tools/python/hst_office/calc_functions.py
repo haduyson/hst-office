@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Sheets add-in functions DOCSO, DOCTIEN, BODAU, TACHHO, TACHTEN, VND, USD (service org.hst.office.vi.CalcFunctions).
 
 Calc finds the functions, their Vietnamese help and the "Tiếng Việt" category in CalcAddIns.xcu and the method types in

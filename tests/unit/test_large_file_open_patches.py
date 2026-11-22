@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Large-file open fixes in patches/libreoffice (offline: reads the patch hunks).
 
 - hst-calc-xlsx-shared-formula-results.patch: a shared formula's cached number is kept (ResetDirty + SetChanged(false)

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """BibTeX export: CSL types and fields mapped back to BibTeX entries with readable, unique keys (trinh2019kinh).
 Special characters are escaped; Unicode letters stay as written (UTF-8 BibTeX/biber). Pure Python (no uno)."""
 import re

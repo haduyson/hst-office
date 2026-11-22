@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UI language of an INSTALLED office on one profile: what is stored, what the core UI uses, and a switch.
 
 Run with the office's own interpreter (Windows CI, smoke-install-paths.ps1):

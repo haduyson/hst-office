@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, Word documents: the recipient list a Word mail-merge .docx names (w:mailMerge), where it is looked for
 when the document moved, and the computed columns the staging copy gets for the document's Word fields."""
 import datetime

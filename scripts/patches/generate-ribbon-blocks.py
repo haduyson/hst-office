@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate the bare-button rung of the tabs' right-hand blocks (vcl/inc/HstRibbonBlocks.hxx) as one patch.
 
 Usage: scripts/patches/generate-ribbon-blocks.py --tree DIR [--data data/ribbon/scaling-ladders.json]

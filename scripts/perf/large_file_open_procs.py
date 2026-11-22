@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Office processes for scripts/perf/large-file-open.py: find, measure and stop soffice processes.
 
 Uses psutil when the Python has it; otherwise /proc on Linux and tasklist/taskkill on Windows (an office's bundled

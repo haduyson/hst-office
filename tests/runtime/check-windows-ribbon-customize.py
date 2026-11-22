@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: ribbon customization and the "Sử dụng gần đây" (recently used) tab of an INSTALLED HST Office (Linux
 counterpart: check-ribbon-customize.py).
 

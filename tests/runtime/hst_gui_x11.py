@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """X11 side of the GUI runtime checks (hst_gui.py): top-level windows, screenshots, closing dialogs.
 
 WindowMixin holds the Office methods that act on this instance's windows."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What editing does to a citation field: typing or deleting inside it, Backspace/Delete next to
 it, deleting a selection holding it, Undo/Redo, copy/cut and paste. Each case starts from a fresh
 paragraph "Trước [1] sau." with one citation, driven through the same commands as the keyboard."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Paste a formatted reference and get its fields back (offline): checked on lines printed by HST's own styles
 and on hand-typed Vietnamese thesis lines."""
 import unittest

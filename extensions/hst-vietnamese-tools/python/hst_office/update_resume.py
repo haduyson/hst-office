@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What the office does at the first start after "Cập nhật ngay" closed it: reopen the documents, say how it went.
 
 Right before the office quits for an update, update_install writes update-pending.json beside update.log: the release

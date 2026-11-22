@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Digital signatures with a USB token (PKCS#11) end to end, on a virtual SoftHSM2 token.
 
 Signs ODT, DOCX, ODS, XLSX, ODP, PPTX and an existing PDF through the real dialogs

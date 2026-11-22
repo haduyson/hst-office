@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vancouver (ICMJE/NLM), AMA 11 and Harvard (Cite Them Right)."""
 from citation_styles_common import ALIAS, DOT, LINK, g, intl_opts, t, term, v
 

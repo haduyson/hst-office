@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dialog "Tài liệu chưa lưu" (command org.hst.office.vi:UnsavedDocuments: Start Center button, Tệp tin menu after
 Tài liệu gần đây, File panel ▸ Thông tin): the documents closed without saving in the last 7 days, newest first.
 "Mở" opens one as a new, untitled document (the kept copy stays until it expires or is deleted), "Xóa" and "Xóa tất

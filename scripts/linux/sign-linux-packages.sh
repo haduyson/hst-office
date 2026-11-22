@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Release step: GPG-sign the Linux packages with the HASON TECH Linux packaging key (docs/LINUX_PACKAGES.md):
 #   - every HSTOffice_*_Linux_x86-64.rpm: rpmsign --addsign (header + payload), checked with rpmkeys --checksig;
 #   - every HSTOffice_*_Linux_x86-64.AppImage: detached ASCII signature <name>.asc;

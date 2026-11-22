@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-border-window-resize-disposed.patch: a border window that is being disposed ignores Resize.
 
 Closing a Writer document over UNO crashed in ImplBorderWindow::Resize: dispose() resets the border view, then the

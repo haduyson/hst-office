@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The coat corner check (tests/runtime/coat_corner_check.py) on drawn corners: a smooth anti-aliased ring passes;
 the three defects seen in Windows screenshots fail: a pale hairline arc with notches, a gap cut by an opaque inner
 window, and a fill shifted past the border."""

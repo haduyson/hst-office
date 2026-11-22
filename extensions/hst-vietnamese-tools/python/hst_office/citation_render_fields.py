@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Field formatting shared by the style layouts: page ranges, editions, DOI, publisher prefix, quotes, title case."""
 import re
 

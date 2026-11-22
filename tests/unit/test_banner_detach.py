@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The banner's core lets go of its workers without releasing the SolarMutex (hst-banner-detach-no-unlock.patch):
 a release inside a window's dispose let the main thread resize a half-disposed border window."""
 import re

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Measure a rendered PDF of a document (poppler bbox; PyMuPDF for vector rules when installed). All lengths in mm."""
 import html
 import re

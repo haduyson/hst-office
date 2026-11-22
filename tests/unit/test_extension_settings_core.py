@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The HST settings (org.hasontech.hstoffice.*) are core configuration schemas, not extension schemas.
 
 configmgr reads the user's registrymodifications.xcu before the profile's extension registration is complete when that

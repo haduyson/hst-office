@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Install-lifecycle test for the single HST Office .deb in a clean container:
 # install -> package/metadata/coexistence checks -> convert a document as a normal
 # user -> remove -> purge -> verify the user's documents and profile survive -> reinstall.

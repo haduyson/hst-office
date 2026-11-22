@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ODF renderer of the shared document layout: the .ott templates are hst_office.nd30_layout, written directly as XML."""
 from .odf import document, fonts, node, paragraph, style, xml
 from .writer_layout import build_layout, portable_blocks

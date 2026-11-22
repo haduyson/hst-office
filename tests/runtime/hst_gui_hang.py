@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Hang watchdog for GUI runtime checks: when a check makes no progress for `idle` seconds, record why and fail fast
 instead of sitting until the runner's timeout (a batch5 smoke sat 40 minutes after 39 PASS with no evidence).
 

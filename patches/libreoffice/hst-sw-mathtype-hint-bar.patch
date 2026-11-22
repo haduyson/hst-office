@@ -3,15 +3,20 @@ shows them as their preview picture, and nothing tells the user that HST can tur
 editable formulas. When such a document opens editable, an info bar names the number of
 MathType equations and offers [Convert Equations], which runs HST's formula converter
 (org.hst.office.vi:ConvertFormulas), and [Close]. It never converts by itself and shows once
-per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
+per document per session (sw/source/uibase/hst/mathtypehintbar.cxx). Where MathType itself is
+installed (Windows: its OLE server is registered, in the 64-bit or the 32-bit registry view, and
+its program exists) the bar is not shown: MathType opens its equations on a double-click.
+Test: the MathType objects stay Equation.DSMT4 OLE objects through open, a closed bar and .docx
+saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 
 --- a/sw/CppunitTest_sw_uibase_uiview.mk
 +++ b/sw/CppunitTest_sw_uibase_uiview.mk
-@@ -15,6 +15,7 @@
+@@ -15,6 +15,8 @@
  
  $(eval $(call gb_CppunitTest_add_exception_objects,sw_uibase_uiview, \
      sw/qa/uibase/uiview/uiview \
 +    sw/qa/uibase/hst/mathtypehintbar \
++    sw/qa/uibase/hst/mathtypekeptole \
  ))
  
  $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_uiview, \
@@ -111,7 +116,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/uibase/hst/mathtypehintbar.cxx
 +++ b/sw/source/uibase/hst/mathtypehintbar.cxx
-@@ -0,0 +1,295 @@
+@@ -0,0 +1,359 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -150,6 +155,12 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +#include <algorithm>
 +#include <vector>
 +
++#ifdef _WIN32
++#include <o3tl/char16_t2wchar_t.hxx>
++#include <prewin.h>
++#include <postwin.h>
++#endif
++
 +using namespace css;
 +
 +namespace hst::mathtype
@@ -167,6 +178,60 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    static const SvGlobalName aId(0x0002ce03, 0x0000, 0x0000, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00,
 +                                  0x00, 0x46);
 +    return aId;
++}
++
++#ifdef _WIN32
++/// The program of a registry command line: quoted, or up to ".exe"/".dll", else all of it.
++OUString ProgramOf(OUString aCommand)
++{
++    aCommand = aCommand.trim();
++    if (aCommand.startsWith("\""))
++    {
++        const sal_Int32 nEnd = aCommand.indexOf('"', 1);
++        return nEnd > 0 ? aCommand.copy(1, nEnd - 1) : aCommand.copy(1);
++    }
++    const OUString aLower = aCommand.toAsciiLowerCase();
++    for (const char* pExt : { ".exe", ".dll" })
++        if (const sal_Int32 nAt = aLower.indexOf(OUString::createFromAscii(pExt)); nAt > 0)
++            return aCommand.copy(0, nAt + 4);
++    return aCommand;
++}
++
++/// The default value of HKEY_CLASSES_ROOT\pKey (a REG_EXPAND_SZ comes expanded), in the 64-bit
++/// or else the 32-bit view: a 32-bit OLE server (MathType in "Program Files (x86)") registers its
++/// class in the 32-bit view only, and COM starts it for the 64-bit office all the same.
++OUString ReadClassesRoot(const wchar_t* pKey)
++{
++    for (DWORD nView : { RRF_SUBKEY_WOW6464KEY, RRF_SUBKEY_WOW6432KEY })
++    {
++        wchar_t aValue[MAX_PATH * 2];
++        DWORD nSize = sizeof(aValue);
++        if (RegGetValueW(HKEY_CLASSES_ROOT, pKey, nullptr, RRF_RT_REG_SZ | nView,
++                         nullptr, aValue, &nSize)
++            == ERROR_SUCCESS)
++            return OUString(o3tl::toU(aValue));
++    }
++    return OUString();
++}
++#endif
++
++/// MathType is installed: its OLE server (LocalServer32 or InprocServer32 of the MathType class) is
++/// registered and its program exists. MathType then opens its equations on a double-click, as in
++/// HST Office 1.0.2, so the bar has nothing to offer. Never true outside Windows.
++bool MathTypeInstalled()
++{
++#ifdef _WIN32
++    for (const wchar_t* pKey : { L"CLSID\\{0002CE03-0000-0000-C000-000000000046}\\LocalServer32",
++                                 L"CLSID\\{0002CE03-0000-0000-C000-000000000046}\\InprocServer32" })
++    {
++        const OUString aProgram = ProgramOf(ReadClassesRoot(pKey));
++        if (aProgram.isEmpty())
++            continue;
++        if (GetFileAttributesW(o3tl::toW(aProgram.getStr())) != INVALID_FILE_ATTRIBUTES)
++            return true;
++    }
++#endif
++    return false;
 +}
 +
 +bool Vietnamese()
@@ -358,6 +423,10 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    const uno::Reference<uno::XInterface> xModel(pDocShell->GetModel(), uno::UNO_QUERY);
 +    if (!xModel.is())
 +        return;
++    // Where MathType is installed it edits its equations itself, so the bar stays away. The
++    // converter stays in the ribbon and the menu (Chuyển công thức) for whoever wants it.
++    if (MathTypeInstalled())
++        return;
 +    std::vector<OUString> aNames = OleNames(*pDocShell->GetDoc());
 +    if (aNames.empty() || !FirstTime(xModel))
 +        return;
@@ -460,3 +529,384 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
      m_aBringToAttentionBlinkTimer.SetInvokeHandler(
                  LINK(this, SwView, BringToAttentionBlinkTimerHdl));
      m_aBringToAttentionBlinkTimer.SetTimeout(350);
+--- a/sw/qa/uibase/hst/mathtypekeptole.cxx
++++ b/sw/qa/uibase/hst/mathtypekeptole.cxx
+@@ -0,0 +1,234 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/container/XNameAccess.hpp>
++#include <com/sun/star/document/XEmbeddedObjectSupplier2.hpp>
++#include <com/sun/star/document/XStorageBasedDocument.hpp>
++#include <com/sun/star/embed/XEmbedPersist.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
++#include <com/sun/star/text/XTextEmbeddedObjectsSupplier.hpp>
++#include <comphelper/propertyvalue.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <sot/exchange.hxx>
++#include <tools/globname.hxx>
++
++#include <doc.hxx>
++#include <docsh.hxx>
++#include <ndarr.hxx>
++#include <ndole.hxx>
++#include <node.hxx>
++#include <view.hxx>
++#include <viewopt.hxx>
++#include <wrtsh.hxx>
++
++#include <algorithm>
++#include <iterator>
++#include <vector>
++
++namespace
++{
++/// MathType 3-7 (Equation.DSMT4): the class ID of the equation's compound file, as stored
++constexpr sal_uInt8 MATHTYPE_CLASS_ID[16] = { 0x03, 0xce, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
++                                              0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 };
++
++/// The stored data of rObject is an OLE compound file whose root entry has MathType's class ID.
++bool StoredAsMathType(const uno::Reference<embed::XStorage>& xStorage,
++                      const uno::Reference<beans::XPropertySet>& xObject)
++{
++    uno::Reference<document::XEmbeddedObjectSupplier2> xSupplier(xObject, uno::UNO_QUERY_THROW);
++    uno::Reference<embed::XEmbedPersist> xPersist(xSupplier->getExtendedControlOverEmbeddedObject(),
++                                                  uno::UNO_QUERY_THROW);
++    const OUString aEntry = xPersist->getEntryName();
++    if (!xStorage->hasByName(aEntry) || xStorage->isStorageElement(aEntry))
++        return false; // an own (ODF) object, not an OLE compound file
++    uno::Reference<io::XInputStream> xIn
++        = xStorage->cloneStreamElement(aEntry)->getInputStream();
++    std::vector<sal_Int8> aData;
++    uno::Sequence<sal_Int8> aChunk;
++    while (xIn->readBytes(aChunk, 65536) > 0)
++        aData.insert(aData.end(), aChunk.begin(), aChunk.end());
++    const auto byte = [&aData](size_t n) { return static_cast<sal_uInt8>(aData[n]); };
++    // compound file header: sector size shift at 0x1E, first directory sector at 0x30; the root
++    // directory entry carries the class ID at offset 0x50
++    if (aData.size() < 512 || byte(0) != 0xd0 || byte(1) != 0xcf)
++        return false;
++    const size_t nShift = byte(0x1e) | (byte(0x1f) << 8);
++    const size_t nSector = byte(0x30) | (byte(0x31) << 8) | (byte(0x32) << 16);
++    const size_t nRoot = ((nSector + 1) << nShift) + 0x50;
++    if (nShift < 7 || nShift > 16 || nRoot + 16 > aData.size())
++        return false;
++    return std::equal(std::begin(MATHTYPE_CLASS_ID), std::end(MATHTYPE_CLASS_ID),
++                      aData.begin() + nRoot,
++                      [](sal_uInt8 a, sal_Int8 b) { return a == static_cast<sal_uInt8>(b); });
++}
++
++/// A document's MathType equations stay MathType OLE objects through open and save: Word and
++/// MathType must still open and edit them. Converting them to HST formulas is a separate command;
++/// nothing else may turn them into pictures or formulas.
++class HstMathTypeKeptOleTest : public SwModelTestBase
++{
++public:
++    HstMathTypeKeptOleTest()
++        : SwModelTestBase(u"/sw/qa/uibase/hst/data/"_ustr)
++    {
++    }
++
++    /// "<n> objects, <m> MathType": the current document's embedded objects and those stored as
++    /// MathType compound files (the CLSID property names the class only where Windows OLE runs).
++    OUString countObjects()
++    {
++        uno::Reference<text::XTextEmbeddedObjectsSupplier> xSupplier(mxComponent,
++                                                                     uno::UNO_QUERY_THROW);
++        uno::Reference<container::XNameAccess> xObjects = xSupplier->getEmbeddedObjects();
++        uno::Reference<document::XStorageBasedDocument> xDocument(mxComponent,
++                                                                  uno::UNO_QUERY_THROW);
++        const uno::Reference<embed::XStorage> xStorage = xDocument->getDocumentStorage();
++        const uno::Sequence<OUString> aNames = xObjects->getElementNames();
++        sal_Int32 nMathType = 0;
++        for (const OUString& rName : aNames)
++        {
++            uno::Reference<beans::XPropertySet> xObject(xObjects->getByName(rName),
++                                                        uno::UNO_QUERY_THROW);
++            if (StoredAsMathType(xStorage, xObject))
++                ++nMathType;
++        }
++        return OUString::number(aNames.getLength()) + " objects, " + OUString::number(nMathType)
++               + " MathType";
++    }
++
++    /// The saved .docx holds nEquations MathType OLE objects (w:object, o:OLEObject ProgID
++    /// Equation.DSMT4 with its embedded compound file) and no picture in their place.
++    void checkSavedDocx(sal_Int32 nEquations)
++    {
++        xmlDocUniquePtr pXmlDoc = parseExport(u"word/document.xml"_ustr);
++        CPPUNIT_ASSERT(pXmlDoc);
++        assertXPath(pXmlDoc, "//w:object", nEquations);
++        assertXPath(pXmlDoc, "//w:object/o:OLEObject[@ProgID='Equation.DSMT4']", nEquations);
++        assertXPath(pXmlDoc, "//w:drawing", 0);
++        assertXPath(pXmlDoc, "//m:oMath", 0);
++        xmlDocUniquePtr pRels = parseExport(u"word/_rels/document.xml.rels"_ustr);
++        assertXPath(pRels,
++                    "/rels:Relationships/rels:Relationship[@Type='http://schemas."
++                    "openxmlformats.org/officeDocument/2006/relationships/oleObject']",
++                    nEquations);
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeKeptOleTest, testOpenSaveDocxKeepsMathTypeObjects)
++{
++    // Written by HST for this test: two MathType objects (the OLE payload of the LibreOffice
++    // fixture fdo78906.docx) whose result picture is a plain WMF rectangle: a picture with text
++    // would need the System and MT Extra fonts, which the test environment does not provide.
++    createSwDoc("hst-mathtype-ole-kept.rtf");
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
++
++    // Saved as .docx: still OLE objects, not pictures
++    saveAndReload(TestFilter::DOCX);
++    checkSavedDocx(2);
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
++
++    // .docx opened and saved again: unchanged
++    saveAndReload(TestFilter::DOCX);
++    checkSavedDocx(2);
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeKeptOleTest, testClosedInfoBarKeepsMathTypeObjects)
++{
++    // Opened as a user does (visible, editable): the MathType info bar counts the objects by their
++    // stored streams. Closing it ("Đóng", i.e. not converting) must leave the objects as they were.
++    createSwDoc("hst-mathtype-ole-kept.rtf");
++    saveAndReload(TestFilter::DOCX);
++    {
++        // Pictures and objects as placeholders: painting a MathType preview needs its fonts
++        // (System, MT Extra), which the test environment does not provide.
++        SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++        SwViewOption aOptions(*pWrtShell->GetViewOptions());
++        aOptions.SetGraphic(false);
++        pWrtShell->ApplyViewOptions(aOptions);
++    }
++    Scheduler::ProcessEventsToIdle();
++    SfxViewFrame& rFrame = getSwDocShell()->GetView()->GetViewFrame();
++#ifndef _WIN32 // on Windows the bar is not shown where MathType is installed
++    CPPUNIT_ASSERT(rFrame.HasInfoBarWithID(u"hst-mathtype"));
++#endif
++    rFrame.RemoveInfoBar(u"hst-mathtype");
++    Scheduler::ProcessEventsToIdle();
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
++
++    saveAndReload(TestFilter::DOCX);
++    checkSavedDocx(2);
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeKeptOleTest, testUndoneDeletionKeepsMathTypeProgID)
++{
++    // Converting MathType equations replaces each object; Undo brings the objects back under new
++    // names. A .docx saved then wrote them with ProgID="", so Word and MathType no longer saw
++    // MathType equations. Deleting an object and undoing that takes the same way.
++    createSwDoc("hst-mathtype-ole-kept.rtf");
++    saveAndReload(TestFilter::DOCX);
++    uno::Reference<text::XTextEmbeddedObjectsSupplier> xSupplier(mxComponent,
++                                                                 uno::UNO_QUERY_THROW);
++    uno::Reference<container::XNameAccess> xObjects = xSupplier->getEmbeddedObjects();
++    for (const OUString& rName : xObjects->getElementNames())
++        uno::Reference<lang::XComponent>(xObjects->getByName(rName), uno::UNO_QUERY_THROW)
++            ->dispose();
++    CPPUNIT_ASSERT_EQUAL(u"0 objects, 0 MathType"_ustr, countObjects());
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
++
++    saveAndReload(TestFilter::DOCX);
++    checkSavedDocx(2);
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeKeptOleTest, testOleCacheKeepsMathTypeObjects)
++{
++    // Writer's OLE cache unloads the least recently used objects when another one starts (a formula
++    // being inserted or opened). On Windows, unloading a MathType equation makes MathType load it;
++    // with dozens of them MathType ended in its endless "Too many windows are open" box
++    // (tdf#45892). The cache now leaves another program's objects alone and still unloads its own.
++    createSwDoc("hst-mathtype-ole-kept.rtf");
++    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XTextContent> xFormula(
++        xFactory->createInstance(u"com.sun.star.text.TextEmbeddedObject"_ustr), uno::UNO_QUERY_THROW);
++    uno::Reference<beans::XPropertySet>(xFormula, uno::UNO_QUERY_THROW)
++        ->setPropertyValue(u"CLSID"_ustr, uno::Any(u"078B7ABA-54FC-457F-8551-6147E776A997"_ustr));
++    uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XText> xText = xTextDocument->getText();
++    xText->insertTextContent(xText->getEnd(), xFormula, false);
++
++    sal_Int32 nForeign = 0, nOwn = 0;
++    SwNodes& rNodes = getSwDoc()->GetNodes();
++    for (SwNodeOffset n(0); n < rNodes.Count(); ++n)
++    {
++        SwOLENode* pOLENode = rNodes[n]->GetOLENode();
++        if (!pOLENode)
++            continue;
++        SwOLEObj& rObject = pOLENode->GetOLEObj();
++        const bool bOwn = SotExchange::IsInternal(SvGlobalName(rObject.GetOleRef()->getClassID()));
++        // the cache's call; false: the object is left as it is
++        CPPUNIT_ASSERT_EQUAL(bOwn, rObject.UnloadObject());
++        ++(bOwn ? nOwn : nForeign);
++    }
++    CPPUNIT_ASSERT_EQUAL(u"2 MathType objects, 1 formula"_ustr,
++                         OUString(OUString::number(nForeign) + " MathType objects, "
++                                  + OUString::number(nOwn) + " formula"));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/qa/uibase/hst/data/hst-mathtype-ole-kept.rtf
++++ b/sw/qa/uibase/hst/data/hst-mathtype-ole-kept.rtf
+@@ -0,0 +1,141 @@
++{\rtf1\ansi\deff0{\fonttbl{\f0\froman Times New Roman;}}
++\paperw11906\paperh16838\margl1440\margr1440\margt1440\margb1440
++\pard\plain\f0\fs24 HST Office: two MathType (Equation.DSMT4) objects kept as objects. Their result picture is a
++plain rectangle (no text, so no font is needed to read it).\par
++\pard\plain\f0\fs24 First: {\object\objemb\objw7839\objh999{\*\objclass Equation.DSMT4}{\*\objdata
++01050000020000000f0000004571756174696f6e2e44534d543400000000000000000000100000d0cf11e0a1b11ae1000000000000000000000000000000003e
++000300feff0900060000000000000000000000010000000100000000000000001000000200000001000000feffffff0000000000000000ffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdffffff04000000feffffff05000000feffffff06000000fe
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff52006f006f007400200045006e007400720079000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000016000500ffffffffffffffff0200000003ce020000000000c0
++00000000000046000000000000000000000000000000000000000003000000000500000000000001004f006c0065000000000000000000000000000000000000
++0000000000000000000000000000000000000000000000000000000000000000000000000000000a000201ffffffffffffffffffffffff000000000000000000
++000000000000000000000000000000000000000000000000000000000000001400000000000000010043006f006d0070004f0062006a00000000000000000000
++000000000000000000000000000000000000000000000000000000000000000000000000000000120002010100000003000000ffffffff000000000000000000
++00000000000000000000000000000000000000000000000000000001000000690000000000000003004f0062006a0049006e0066006f00000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000012000201ffffffff04000000ffffffff000000000000000000
++000000000000000000000000000000000000000000000000000000030000000600000000000000feffffff02000000fefffffffeffffff050000000600000007
++00000008000000090000000a0000000b0000000c0000000d0000000e0000000f00000010000000110000001200000013000000feffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff01000002080000000000000000000000000000000000000000
++0000000000000000000000000000000000000000000000000000000000000000000000000000000100feff030a0000ffffffff03ce020000000000c000000000
++000046160000004d6174685479706520362e30204571756174696f6e000c0000004d61746854797065204546000f0000004571756174696f6e2e44534d543400
++f439b271000000000000000000000000000000000000000000000000000000000000000000000000000300010000000000000000000000000000000000000000
++0000000000000000000000000000000000000000000000000000000000000000000000000000001c0000000200b0c5b90300003c013300904e5400000000000c
++003300050100060744534d543600011357696e416c6c4261736963436f6465506167657300110554696d6573204e657720526f6d616e00110353796d626f6c00
++1105436f7572696572204e65770011044d54204578747261001357696e416c6c436f6465506167657300110647756c696d43686500120008212f458f442f4150
++f4100f475f4150f21f1e4150f4150f4100f445f425f48f425f4100f4100f435f4100f48f45f42a5f48f48f4100f4100f40f48f417f48f4100f412a5f445f45f4
++5f45f45f410f0c0100010001020202020002000101010003000100040005000a040001010100024500710075006100740069006f006e0020004e006100740069
++00760065000000000000000000000000000000000000000000000000000000000000000000000020000200ffffffffffffffffffffffff000000000000000000
++00000000000000000000000000000000000000000000000000000004000000d50300000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffff000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffff000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffff000000000000000000
++000000000000000000000000000000000000000000000000000000000000000000000000000000008350000204863d003d020083490003001c00000b01010100
++020088320000000a02008352000204863d003d0200825b00020083490003001b00000b01000200883000000101000a0204862b002b0200836900020282630002
++00826f0002008273000200822800020484c90377020083740002048612222d020484c6036a03001b00000b01000200883000000101000a02008229000200825d
++0003001c00000b01010100020088320000000a020083520003001b00000b01000200883000000101000a020082280002008831000204862b002b020484bb036c
++020484b8037102008229000001000204863d003d0200822800020083490003001d00000b01000200883000000100020088320000000a0204862b002b03000b00
++000100020088310000010002008832000000020083690003001c00000b01010100020088320000000a0200822900020083520003001b00000b01000200883000
++000101000a020082280002008831000204862b002b020484bb036c020484b8037102008229000204862b002b0200883200020083490003001b00000b01000200
++883000000101000a0200836900020083520003001b00000b01000200883000000101000a020082280002008831000204862b002b020484bb036c020484b80371
++020082290002028263000200826f0002008273000200822800020484c90377020083740002048612222d020484c6036a03001b00000b01000200883000000101
++000a02008229000204862b002b03000b00000100020088310000010002008832000000020083690003001c00000b01010100020088320000000a020083520003
++001b00000b01000200883000000101000a020082280002008831000204862b002b020484bb036c020484b80371020082290002028263000200826f0002008273
++0002008832000200822800020484c90377020083740002048612222d020484c6036a03001b00000b01000200883000000101000a020082290000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++000000000000000000000000000000000000000000000000000000000000000000000000000000}
++{\result{\pict\wmetafile8\picw13829\pich1764\picwgoal7839\pichgoal999
++0100090000031d0000000000070000000000050000000b0200000000050000000c02c8004006070000001b04b4002c0614001400030000000000}}} after the first.\par
++\pard\plain\f0\fs24 Second: {\object\objemb\objw7839\objh999{\*\objclass Equation.DSMT4}{\*\objdata
++01050000020000000f0000004571756174696f6e2e44534d543400000000000000000000100000d0cf11e0a1b11ae1000000000000000000000000000000003e
++000300feff0900060000000000000000000000010000000100000000000000001000000200000001000000feffffff0000000000000000ffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffdffffff04000000feffffff05000000feffffff06000000fe
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff52006f006f007400200045006e007400720079000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000016000500ffffffffffffffff0200000003ce020000000000c0
++00000000000046000000000000000000000000000000000000000003000000000500000000000001004f006c0065000000000000000000000000000000000000
++0000000000000000000000000000000000000000000000000000000000000000000000000000000a000201ffffffffffffffffffffffff000000000000000000
++000000000000000000000000000000000000000000000000000000000000001400000000000000010043006f006d0070004f0062006a00000000000000000000
++000000000000000000000000000000000000000000000000000000000000000000000000000000120002010100000003000000ffffffff000000000000000000
++00000000000000000000000000000000000000000000000000000001000000690000000000000003004f0062006a0049006e0066006f00000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000012000201ffffffff04000000ffffffff000000000000000000
++000000000000000000000000000000000000000000000000000000030000000600000000000000feffffff02000000fefffffffeffffff050000000600000007
++00000008000000090000000a0000000b0000000c0000000d0000000e0000000f00000010000000110000001200000013000000feffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
++ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff01000002080000000000000000000000000000000000000000
++0000000000000000000000000000000000000000000000000000000000000000000000000000000100feff030a0000ffffffff03ce020000000000c000000000
++000046160000004d6174685479706520362e30204571756174696f6e000c0000004d61746854797065204546000f0000004571756174696f6e2e44534d543400
++f439b271000000000000000000000000000000000000000000000000000000000000000000000000000300010000000000000000000000000000000000000000
++0000000000000000000000000000000000000000000000000000000000000000000000000000001c0000000200b0c5b90300003c013300904e5400000000000c
++003300050100060744534d543600011357696e416c6c4261736963436f6465506167657300110554696d6573204e657720526f6d616e00110353796d626f6c00
++1105436f7572696572204e65770011044d54204578747261001357696e416c6c436f6465506167657300110647756c696d43686500120008212f458f442f4150
++f4100f475f4150f21f1e4150f4150f4100f445f425f48f425f4100f4100f435f4100f48f45f42a5f48f48f4100f4100f40f48f417f48f4100f412a5f445f45f4
++5f45f45f410f0c0100010001020202020002000101010003000100040005000a040001010100024500710075006100740069006f006e0020004e006100740069
++00760065000000000000000000000000000000000000000000000000000000000000000000000020000200ffffffffffffffffffffffff000000000000000000
++00000000000000000000000000000000000000000000000000000004000000d50300000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffff000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffff000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffff000000000000000000
++000000000000000000000000000000000000000000000000000000000000000000000000000000008350000204863d003d020083490003001c00000b01010100
++020088320000000a02008352000204863d003d0200825b00020083490003001b00000b01000200883000000101000a0204862b002b0200836900020282630002
++00826f0002008273000200822800020484c90377020083740002048612222d020484c6036a03001b00000b01000200883000000101000a02008229000200825d
++0003001c00000b01010100020088320000000a020083520003001b00000b01000200883000000101000a020082280002008831000204862b002b020484bb036c
++020484b8037102008229000001000204863d003d0200822800020083490003001d00000b01000200883000000100020088320000000a0204862b002b03000b00
++000100020088310000010002008832000000020083690003001c00000b01010100020088320000000a0200822900020083520003001b00000b01000200883000
++000101000a020082280002008831000204862b002b020484bb036c020484b8037102008229000204862b002b0200883200020083490003001b00000b01000200
++883000000101000a0200836900020083520003001b00000b01000200883000000101000a020082280002008831000204862b002b020484bb036c020484b80371
++020082290002028263000200826f0002008273000200822800020484c90377020083740002048612222d020484c6036a03001b00000b01000200883000000101
++000a02008229000204862b002b03000b00000100020088310000010002008832000000020083690003001c00000b01010100020088320000000a020083520003
++001b00000b01000200883000000101000a020082280002008831000204862b002b020484bb036c020484b80371020082290002028263000200826f0002008273
++0002008832000200822800020484c90377020083740002048612222d020484c6036a03001b00000b01000200883000000101000a020082290000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
++000000000000000000000000000000000000000000000000000000000000000000000000000000}
++{\result{\pict\wmetafile8\picw13829\pich1764\picwgoal7839\pichgoal999
++0100090000031d0000000000070000000000050000000b0200000000050000000c02c8004006070000001b04b4002c0614001400030000000000}}} after the second.\par
++}

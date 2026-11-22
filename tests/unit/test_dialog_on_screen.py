@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A modal HST dialog must never run off screen (macOS freeze report, HST Office 1.0.2).
 
 HST > "Văn bản hành chính" from a Sheets tab opened a new Writer tab and the ND 30 wizard inside the same menu command.
@@ -55,8 +56,21 @@ for _name, _module in list(sys.modules.items()):
 from hst_office import dialog_on_screen, dialog_registry, dialogs, dispatch  # noqa: E402
 from hst_office import actions  # noqa: E402,F401 - dispatch imports it on first use; it needs the stubs too
 from hst_office import wizard_nd30  # noqa: E402
+import com.sun.star.document  # noqa: E402,F401 - imported on use (macOS watcher), after the finder is gone
 
 sys.meta_path.remove(_FINDER)
+
+# watch_new_documents imports com.sun.star.document only when it runs (the stubs above are gone by then). Whether that
+# module is already in sys.modules, and what it holds, depends on which test files ran before in the same process, so
+# the tests that watch for new documents provide their own for their duration.
+_DOCUMENT_MODULE = types.ModuleType("com.sun.star.document")
+_DOCUMENT_MODULE.XDocumentEventListener = type("XDocumentEventListener", (), {})
+
+
+def _provide_document_module(test):
+    patcher = mock.patch.dict(sys.modules, {"com.sun.star.document": _DOCUMENT_MODULE})
+    patcher.start()
+    test.addCleanup(patcher.stop)
 
 
 class Rect:
@@ -287,6 +301,9 @@ FULL_SCREEN, PLAIN = (0, 0, 1024, 768), (130, 121, 1024, 656)
 
 
 class NewDocumentWhileOpenTests(unittest.TestCase):
+    def setUp(self):
+        _provide_document_module(self)
+
     def watch(self, parent_rect, platform="darwin", is_open=lambda: True):
         self.office, self.timers, self.moved = DisplayOffice(), Timers(), []
         self.parent, self.document = Window(True, parent_rect), Window(True, (0, 28, 1024, 740))
@@ -325,6 +342,21 @@ class NewDocumentWhileOpenTests(unittest.TestCase):
         self.run_pending()
         self.assertEqual(self.moved, [])
 
+    def test_mac_full_screen_on_a_second_display_of_another_size_moves_the_dialog(self):
+        """AppKit says full screen: the parent is smaller than the built-in display (a second, smaller display)."""
+        self.watch((1024, 0, 800, 600))
+        with mock.patch("hst_office.mac_native_window.is_full_screen", return_value=True):
+            self.office.broadcaster.fire("OnNew", self.document)
+        self.run_pending()
+        self.assertEqual(self.moved, [self.document])
+
+    def test_mac_a_display_sized_window_that_appkit_says_is_not_full_screen_keeps_the_dialog(self):
+        self.watch(FULL_SCREEN)
+        with mock.patch("hst_office.mac_native_window.is_full_screen", return_value=False):
+            self.office.broadcaster.fire("OnNew", self.document)
+        self.run_pending()
+        self.assertEqual(self.moved, [])
+
     def test_windows_and_linux_watch_nothing(self):
         for platform in ("win32", "linux"):
             stop = self.watch(FULL_SCREEN, platform=platform)
@@ -334,6 +366,9 @@ class NewDocumentWhileOpenTests(unittest.TestCase):
 
 class DialogExecuteTests(unittest.TestCase):
     """dialogs.Dialog.execute with a parked (hidden) parent: shown parent, centred, logged, watched while it runs."""
+
+    def setUp(self):
+        _provide_document_module(self)
 
     def test_hidden_parent_replaced_logged_and_unwatched_after_execute(self):
         shown, hidden = Window(True), Window(False)

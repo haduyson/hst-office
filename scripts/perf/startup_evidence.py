@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Evidence of one office start for scripts/perf/startup-timing.py: the splash bitmap's size, what the start left in
 the profile, and screenshots."""
 import os

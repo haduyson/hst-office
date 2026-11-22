@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """MLA 9 and ISO 690 (TCVN 10256:2013), numbered and author–year."""
 from citation_styles_common import ALIAS, DOT, LINK, g, intl_opts, t, term, v
 

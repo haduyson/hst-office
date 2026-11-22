@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pop-up "HST Office X is available" after the automatic start-up check found a new release.
 
 The update check job (update_job.automatic_check) runs only when AutoCheck is on (administrator locks applied) and the
@@ -7,7 +8,9 @@ last check is CheckIntervalHours old; this module decides how the result is show
   allowed and the signed manifest has an installer for this computer; otherwise "Tải về"), "Để sau" and
   "Bỏ qua bản này" (SkippedVersion, the same setting as the infobar's button);
 - at most once a day per version (update-reminder.json beside update.log, on this machine only);
-- not while a document is still loading or a modal dialog of the extension (the welcome dialog) is open: it waits;
+- not while a document is still loading, the start-up questions run (startup_prompts.prompting: the check starts
+  before them) or a modal dialog of the extension is open: it waits; when that lasts beyond the wait, the infobar
+  shows the release instead, so the pop-up never covers a question;
 - when it is not due, or no window can hold it, the infobar of update_ui.notify is shown instead, as before.
 """
 import json
@@ -63,10 +66,17 @@ def _cache():
 
 
 def _busy(ctx):
-    """A document is still being imported, or a modal dialog of the extension is open (its window takes no input)."""
+    """A document is still being imported, the start-up questions run, or a modal dialog of the extension is open (its
+    window takes no input)."""
     from . import dialog_registry
     if dialog_registry.OPEN:
         return True
+    try:
+        from .startup_prompts import prompting
+        if prompting():
+            return True
+    except Exception:  # noqa: BLE001 - unknown: the open dialogs above still count
+        diag_log.exception("update_popup")
     try:
         from .welcome_job import loading
         return loading(ctx)
@@ -87,7 +97,9 @@ def notify(ctx, release, installed, now=None, tries=0):
             return None
         if not due(load(cache), release["version"], now):
             return ui.notify(ctx, release, installed)
-        if _busy(ctx) and tries < WAIT_TRIES:
+        if _busy(ctx):
+            if tries >= WAIT_TRIES:  # still busy: the infobar, never a pop-up over a question
+                return ui.notify(ctx, release, installed)
             timer = threading.Timer(WAIT_STEP, ui.on_main_thread, args=(ctx, lambda: notify(ctx, release, installed, None, tries + 1)))
             timer.daemon = True
             timer.start()

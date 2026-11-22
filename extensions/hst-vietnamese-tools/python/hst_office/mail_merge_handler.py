@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ProtocolHandler of the Trộn thư commands on the Gửi thư tab: org.hst.office.mailmerge:<Command>
 (handler.commands()). One handler per frame. Status: "Preview" is a check item, "Record" shows
 "Bản ghi n / N" as its label, the move commands are greyed out at the ends; everything is enabled only in Writer.

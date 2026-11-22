@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Groups of generate-draw-ribbon.py: new groups, the HST look of every group, the tabs' right-hand blocks left out,
 and the groups laid out in file order."""
 import xml.etree.ElementTree as ET

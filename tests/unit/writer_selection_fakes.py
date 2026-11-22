@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fakes of Writer's selection objects for tests/unit/test_writer_selection.py. The view cursor throws "no text
 selection" from its text methods, as SwXTextViewCursor does whenever cells, a picture, frame, shape or comment are
 selected: code under test may only read its properties."""

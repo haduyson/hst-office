@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The office's dialogs for the Windows GUI checks: list them over UNO and close them without a single key.
 
 A dialog is closed with WM_CLOSE posted to its own HWND (the title bar X: the dialog cancels), never with Escape or

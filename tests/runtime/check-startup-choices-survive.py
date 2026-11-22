@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The HST settings and the welcome dialog's answer survive a start whose extension registration cache is missing.
 
 Usage: python3 tests/runtime/check-startup-choices-survive.py --instdir <instdir> [--out tests/output/startup-choices]

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Download one HST Office Windows MSI for the smoke workflow and check it against SHA256SUMS.
 #   download-smoke-msi.sh <dest-dir> <env-var>
 # Env: GH_TOKEN, GITHUB_REPOSITORY; RUN_ID (Desktop Windows run whose MSI artifact is taken) or

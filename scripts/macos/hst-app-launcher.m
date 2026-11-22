@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-HST-Proprietary
+// Copyright (C) 2026 HASON TECH
 // HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF: tiny launcher apps that open HST Office in one module.
 // They are built into "HST Office.app/Contents/Helpers/" (scripts/macos/make-app-launchers.py); the Dock tiles of
 // "Thêm vào Dock" name those nested copies, and HST Office copies them into /Applications or ~/Applications for

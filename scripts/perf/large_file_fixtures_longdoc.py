@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Realistic long Word documents: a Vietnamese administrative report of N pages, written as a stream.
 
     python large_file_fixtures_longdoc.py <out-dir> [--pages 500,1000,3000] [--units-per-page 1.0]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Office plumbing of tests/runtime/check-update-policy.py (also used by check-python-no-bytecode.py): start and stop
 a headless office with a fresh profile and a UNO socket, read a configuration node, query a command's state."""
 import importlib.util

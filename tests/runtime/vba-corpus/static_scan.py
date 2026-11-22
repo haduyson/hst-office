@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Static analysis only, nothing executes: olevba reads each file as data. Run with `python -I` from another directory.
 
 Usage: static_scan.py PKGDIR DIR OUT.jsonl [--jobs N]. PKGDIR holds oletools (pinned 0.60.2, pip --target). For each file:

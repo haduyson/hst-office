@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """W8–W10/M7: native shortcuts and hover, observed through the OS accessibility tree (ribbon_os.py)."""
 import time
 from support import native, says, wait

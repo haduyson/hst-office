@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: LaTeX environments with rows and columns (cases, array, aligned, matrices) for
 tex_to_starmath. Rows end at \\\\, cells at &. One column becomes a stack, more become a matrix; every cell is
 aligned as LaTeX aligns it: cases and array columns as declared ({ll}, {rcl}), aligned/split columns right then left

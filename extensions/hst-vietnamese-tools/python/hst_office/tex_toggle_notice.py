@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: the end-of-run message on the document window's status bar, never in a dialog.
 
 A modal box after Alt+\\ held the keyboard until Enter, so the user could neither type on nor undo at once. The line

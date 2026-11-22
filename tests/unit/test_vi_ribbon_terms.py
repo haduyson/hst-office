@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Owner decisions of 2026-11-13 on the Vietnamese UI (docs/L10N_GLOSSARY.md):
 
 - tab and group names of the ribbon are in sentence case: only the first word is capitalised ("Bố trí trang",

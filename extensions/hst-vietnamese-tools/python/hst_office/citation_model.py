@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Reference items: CSL-JSON (the format Zotero, Mendeley, doi.org and Crossref share) plus HST extras.
 
 HST extras: ``"hst-vi": true`` on a Vietnamese name (see citation_names) and ``custom.hst`` on the item

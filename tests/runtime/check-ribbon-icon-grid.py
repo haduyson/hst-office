@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Icon grid invariants of the ribbon buttons (owner's rule, Lead's constants), checked on a measurement file.
 
 Usage: python3 tests/runtime/check-ribbon-icon-grid.py MEASURE.json [--scale 1.0|1.5] [--out DIR]

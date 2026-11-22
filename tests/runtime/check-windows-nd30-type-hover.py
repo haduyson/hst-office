@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ND30 "Văn bản hành chính": the open "Loại văn bản" list follows the pointer on Windows, with real mouse input.
 
 The wizard of the INSTALLED extension is run as check-nd30-type-list.py (Linux) runs it; the arrow is clicked with

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-user-autosave-{filter,toggle,test}.patch: "Tự động lưu" (AutoSave into the document's own file).
 
 Offline checks of the patch text: the series order, the default only together with the filter, the framework store

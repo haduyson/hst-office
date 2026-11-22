@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Private HTTPS helper of the error report: one POST, run in its own process so DNS, TLS, the upload and the reply
 share one wall-clock deadline that the parent enforces by killing it (error_report_send).
 

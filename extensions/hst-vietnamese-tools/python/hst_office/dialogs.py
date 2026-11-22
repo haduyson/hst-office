@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Small helper to build native modal UNO dialogs in code (no XDL files, no web views).
 
 Controls are added in tab order; OK/Cancel use the standard push-button types so Enter/Esc work, every control
@@ -8,7 +9,7 @@ import uno
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
-from . import dialog_edit_heights, dialog_on_screen, dialog_registry, screen_work_area
+from . import dialog_edit_heights, dialog_native_sizes, dialog_on_screen, dialog_registry, screen_work_area
 
 OK, CANCEL = 1, 2
 # Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
@@ -77,7 +78,8 @@ class Dialog:
         self.on_oversize = None  # called with no arguments when the peer is larger than the screen work area
         self.on_ready, self.on_closed = None, None  # called right after the peer exists / after the dialog has ended
         # called after the dialog moved onto another window (macOS full screen, dialog_on_screen.watch_new_documents):
-        # the controls are new, so what on_ready hooked on them must be hooked again; None runs on_ready again
+        # the controls are new, so what on_ready hooked on them must be hooked again; None runs on_ready again, with
+        # every control value it changes put back (dialog_model_state), so what was entered stays
         self.on_moved = None
 
     def _add(self, kind, name, x, y, w, h, **props):
@@ -157,6 +159,7 @@ class Dialog:
         parent, parent_kind = dialog_on_screen.parent(self.ctx, parent_peer)
         self.dialog.setVisible(False)
         self.dialog.createPeer(toolkit, parent)
+        dialog_native_sizes.fit_all(self)  # before the edits: it may move rows, which changes the room below an edit
         dialog_edit_heights.fit_edits(self)
         if self.on_oversize and self._exceeds_screen(toolkit):
             self.on_oversize()
@@ -211,9 +214,14 @@ class Dialog:
         self.dialog.setVisible(False)
         self.dialog.createPeer(toolkit, parent)
         self._attach(parent)
-        hook = getattr(self, "on_moved", None) or self.on_ready
-        if hook:
-            hook()
+        if getattr(self, "on_moved", None):
+            self.on_moved()
+        elif self.on_ready:
+            # on_ready hooks the new controls but most also fill the form: keep what the user entered meanwhile
+            from . import dialog_model_state
+            saved = dialog_model_state.snapshot(self.model)
+            self.on_ready()
+            dialog_model_state.restore(self.model, saved)
         dialog_on_screen.log_open(self.model.Title, "moved-to-new-document")
 
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows only: start the updater elevated, with the office window as the owner of the administrator question.
 
 Windows shows an elevation request as a real prompt only when it comes from the foreground window. The updater used to

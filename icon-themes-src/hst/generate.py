@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Export the HST SVG masters. All output stays beside this script.
 
 python3 icon-themes-src/hst/generate.py --through-stage 2
@@ -155,7 +156,7 @@ def main():
                         manifest.append(dict(file=str((out/a).relative_to(ROOT)),kind='alias',theme=theme,size=size,stage=f['stage'],commands=' | '.join(f['commands']),source_glyph=str(src),alias_target=target,sha256=''))
                     if theme=='hst':
                         naming.append(dict(command=' | '.join(f['commands']),requested_key=alias,size=size,upstream_resolved=resolve_upstream(alias),hst_target=key,status='pinned-controller-label'))
-        link_lines=['# HST original artwork; aliases use LibreOffice resource names.', '# SPDX-License-Identifier: AGPL-3.0-only']
+        link_lines=['# HST original artwork; aliases use LibreOffice resource names.', '# SPDX-License-Identifier: LicenseRef-HST-Proprietary']
         for alias,target in sorted(links.items()):
             assert (out/target).is_file()
             assert not (out/alias).exists(), 'Alias shadows a physical resource: '+alias

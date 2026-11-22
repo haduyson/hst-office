@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check: a MathType equation resized in Word keeps the scale Word shows it at once it becomes a formula,
 opened from .rtf, .docx and .doc with "tự chuyển khi mở" on, and with Chèn > Công thức > Chuyển công thức.
 

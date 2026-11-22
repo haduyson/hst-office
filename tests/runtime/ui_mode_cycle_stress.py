@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared scenario and verdict of check-ui-mode-cycle-stress.py (Linux) and check-windows-ui-mode-cycle-stress.py.
 
 Each round opens two Writer and two Sheets documents (tabs of one window), applies every user interface mode to each

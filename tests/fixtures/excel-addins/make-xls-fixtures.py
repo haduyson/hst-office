@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Make the two .xls fixtures of tests/runtime/check-sheets-vnd-usd.py (run once by a developer; the outputs are
 committed). Needs olefile and an HST Sheets build (its Python runs this script's UNO part).
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Cập nhật ngay" when the office does not close at once: refused quits, the extension's own open dialogs, and the
 record that lets the next start reopen the documents."""
 import unittest
@@ -10,6 +11,7 @@ from hst_office import update_install as install  # noqa: E402
 from test_update_install import INFO, RESULT
 
 TEXT = {"install_title": "t", "err_quit": "q", "retry": "r", "later": "l"}
+TEXTS_VI = __import__("hst_office.update_texts", fromlist=["TEXTS"]).TEXTS["vi"]
 
 
 class QuitRefused(unittest.TestCase):
@@ -42,6 +44,29 @@ class QuitRefused(unittest.TestCase):
             ask.assert_not_called()
 
 
+class PreparedBeforeQuit(unittest.TestCase):
+    """macOS: the helper checks and copies the app before the office quits; a failure there is told at once."""
+
+    def run_install(self, error):
+        peer = mock.Mock()
+        peer.isVisible.return_value = True
+        with mock.patch.object(install, "launch_and_quit", side_effect=error), \
+                mock.patch.object(install.launch, "end_own_dialogs", return_value=0), \
+                mock.patch.object(install, "fail") as fail:
+            install.install(mock.Mock(), peer, RESULT, INFO)
+        return fail
+
+    def test_failed_check_is_reported_while_the_office_stays_open(self):
+        for code, key in (("verify", "err_verify"), ("readonly", "err_readonly"), ("install", "err_prepare")):
+            with self.subTest(code=code):
+                fail = self.run_install(install.ready.HelperFailed(code))
+                fail.assert_called_once_with(mock.ANY, mock.ANY, key)
+                self.assertIn(key, TEXTS_VI)
+
+    def test_cancel_while_preparing_shows_nothing(self):
+        self.run_install(install.ready.PrepareCancelled()).assert_not_called()
+
+
 class OwnDialogsFirst(unittest.TestCase):
     def test_open_extension_dialogs_are_ended_and_the_quit_waits_a_turn(self):
         posted = []
@@ -54,7 +79,7 @@ class OwnDialogsFirst(unittest.TestCase):
             self.assertEqual(len(posted), 1)
             posted[0]()
         self.assertEqual(end.call_count, 2)
-        launch.assert_called_once_with(ctx, RESULT, INFO)
+        launch.assert_called_once_with(ctx, RESULT, INFO, None)
 
     def test_the_wait_is_bounded(self):
         posted = []
@@ -91,6 +116,8 @@ class PendingRecord(unittest.TestCase):
                 mock.patch.object(install.launch, "spawn_and_quit", return_value=closing) as quit_:
             result = install.launch_and_quit(ctx, dict(RESULT, path="/home/u/.cache/hst-office/update/x.deb"), INFO)
         quit_.assert_called_once()
+        self.started = quit_.call_args.kwargs["on_started"]
+        self.cache = cache
         return result, install.resume.read(cache)
 
     def test_record_names_documents_and_releases_when_quitting(self):
@@ -102,6 +129,19 @@ class PendingRecord(unittest.TestCase):
         result, record = self.launch(False)
         self.assertIs(result, False)
         self.assertIsNone(record)
+
+    def test_update_lock_is_written_before_the_helper_and_names_it_once_started(self):
+        from hst_office import update_guard as guard
+        self.launch(True)
+        lock = guard.read_lock(self.cache)
+        self.assertEqual((lock["helper"], lock["office"]), (0, install.os.getpid()))
+        self.started(4242)
+        self.assertEqual(guard.read_lock(self.cache)["helper"], 4242)
+
+    def test_update_lock_is_removed_when_the_office_stays_open(self):
+        from hst_office import update_guard as guard
+        self.launch(False)
+        self.assertIsNone(guard.read_lock(self.cache))
 
 
 class DialogRegistry(unittest.TestCase):

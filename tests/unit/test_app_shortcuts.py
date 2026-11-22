@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Writer, HST Sheets and HST Slides outside the office: Dock tiles (macOS) and desktop launchers (Linux).
 Nothing on this machine is changed."""
 import os

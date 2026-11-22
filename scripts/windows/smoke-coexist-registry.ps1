@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Dot-sourced by smoke-install-paths.ps1 (uses its Get-RegDefault and Assert). The registry names LibreOffice
 # registers that HST Office used to share: App Paths of the common program names, the vnd.libreoffice.command
 # URI scheme, the Explorer extension class IDs, the legacy StarOffice ProgIDs, keys under Software\LibreOffice and the automation

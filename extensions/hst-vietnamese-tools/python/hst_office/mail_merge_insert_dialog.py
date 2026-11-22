@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ "Chèn trường trộn" (mockup 03) and "Định dạng trường": the columns by their own (Vietnamese) header,
 the ways a value can be shown for the selected column and a live example from the recipient shown. The insert
 dialog stays open after each insertion, like the reference app's dialog; the format dialog returns one kind."""

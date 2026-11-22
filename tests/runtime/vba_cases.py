@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """VBA compatibility cases for tests/runtime/check-vba.py (Excel idioms in HST Sheets, Word idioms in HST Writer).
 
 Each case is one VBA function body run in its own fresh document, in a module that starts with

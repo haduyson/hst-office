@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The authored Extensions tab ("Phần mở rộng") of hst-ribbon-extensions-tab.patch, as the owner approved it.
 
 Every group, caption, button label (two lines), command URL, icon and the split-button menu of each app are read

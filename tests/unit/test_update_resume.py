@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The first start after "Cập nhật ngay": documents reopened, success noted, a helper that never installed reported."""
 import json
 import os

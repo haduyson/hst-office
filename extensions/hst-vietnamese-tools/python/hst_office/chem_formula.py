@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Định dạng công thức hoá học: which characters of a text become subscript/superscript, and which are replaced. Pure.
 
 Policy: only tokens that look like a chemical formula are touched; every other word stays exactly as typed, so a

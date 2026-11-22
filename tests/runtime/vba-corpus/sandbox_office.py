@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inside the disposable container: Xvfb, one HST office over a pipe, and a watcher for modal dialogs.
 
 The office uses the gen VCL plugin, whose message boxes are real VCL dialogs that the UNO toolkit can

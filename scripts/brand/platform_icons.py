@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows .ico and macOS .icns containers for the product and every module (Pillow writers).
 
 Every size inside a container is rendered from the 1024 px master by render_icon, so small sizes

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What the session heartbeat left in the marker of a session that did not close, as crash-report lines (pure).
 
 session_heartbeat stores in the marker the last time the office answered ("beat") and the app keys of the open

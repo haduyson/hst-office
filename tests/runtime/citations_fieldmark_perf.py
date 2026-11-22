@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Thesis-sized timing: about 200 pages, 300 citations (every 30th in a footnote) and one
 150-entry bibliography. Times listing, ordering, renumbering every citation in one command and
 rewriting the bibliography, then checks a .docx save keeps every field. Timings are taken over the

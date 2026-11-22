@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The user's own reference library: <user profile>/hst-citations/library.json, never sent anywhere.
 
 File: {"schemaVersion": 1, "items": [CSL-JSON items]}. Writes are atomic (temporary file + os.replace). Limits:

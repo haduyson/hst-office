@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-HST-Proprietary
+// Copyright (C) 2026 HASON TECH
 // Runs dumpWindowsRegistry of the patched configmgr/source/winreg.cxx against an in-memory registry: the Windows
 // policy layers read HST Office's own key, and from the old upstream key only the HSTUpdate subtree, and only while
 // HST Office's key of the same hive lacks it. Built and run by tests/runtime/check-winreg-policy.sh.

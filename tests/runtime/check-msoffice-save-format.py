@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that new documents save as .docx / .xlsx / .pptx by default, without the "Keep current
 format" question, on a real HST Office build (GTK3, fresh profile, vi UI).
 

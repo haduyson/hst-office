@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The tooltips' second lines (hst-ribbon-description) of the most used HST Sheets ribbon commands:
 button id -> (English msgid, Vietnamese msgstr), context "TabbedCalc|<id>"."""
 
@@ -62,9 +63,11 @@ DESCRIPTIONS = {
     "btnHstImportCsv": ("Open a text or CSV file with Vietnamese text (UTF-8).",
                             "Mở tệp văn bản hoặc CSV có chữ tiếng Việt (UTF-8)."),
     "btnReviewSpellDialog": ("Check the spelling of the sheet.", "Kiểm tra chính tả của trang tính."),
-    "btnReviewProtect": ("Lock the cells of this sheet against changes.", "Khóa các ô của trang tính này."),
-    "btnReviewToolProtectionDocument": ("Lock the order and names of the sheets.",
-                                        "Khóa thứ tự và tên các trang tính."),
+    # protection, not the read-only mode of the file (Xem > Chế độ sửa): users took one for the other
+    "btnReviewProtect": ("Lock the cells of this sheet, optionally with a password. Not read-only mode.",
+                         "Khóa các ô của trang tính này, có thể đặt mật khẩu. Không phải chế độ chỉ đọc."),
+    "btnReviewToolProtectionDocument": ("Lock the order and names of the sheets; cells stay editable. Not read-only mode.",
+                                        "Khóa thứ tự và tên các trang tính, ô vẫn sửa được. Không phải chế độ chỉ đọc."),
     "btnReviewTraceChangeMode": ("Record every change made to the workbook.",
                                  "Ghi lại mọi thay đổi trong sổ làm việc."),
     "btnViewFreezePanes": ("Keep rows and columns visible while scrolling; the arrow offers the first row or column.",

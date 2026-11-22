@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Windows MSI registers nothing under a name LibreOffice also registers: legacy StarOffice ProgIDs, App Paths,
 the vnd.libreoffice.command URI scheme, the Explorer extension class IDs and keys under Software\\LibreOffice
 (five appended patches).

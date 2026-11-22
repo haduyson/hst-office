@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư design features without UNO: the Vietnamese address block and greeting, the rules (Nếu…Thì…Khác,
 Bỏ qua bản ghi nếu, Hỏi, Đặt số thứ tự) as computed staging columns, Kiểm tra lỗi, the ▾ menu items, the list
 editor's column parsing, the vi/en texts and the handler's command table."""

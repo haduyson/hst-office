@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What a citation refresh writes into the document, computed without touching it. Pure Python (no uno).
 
 Input: the document's HST fields as citation_document.scan lists them, each

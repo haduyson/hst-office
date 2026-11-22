@@ -1,8 +1,12 @@
 # Third-party notices
 
+HST Office là phần mềm độc quyền của HASON TECH theo [Điều khoản sử dụng phần mềm HST Office](LICENSE). Các thành phần bên thứ ba dưới đây theo giấy phép riêng của chúng; Điều khoản sử dụng không hạn chế quyền của người dùng theo các giấy phép đó. Mã nguồn tương ứng của các thành phần theo MPL-2.0, LGPL hoặc GPL trong một bản phát hành: gửi yêu cầu tới lienhe@hasontech.vn.
+
+HST Office is proprietary software of HASON TECH under the [HST Office Software Terms of Use](LICENSE). The third-party components below are under their own licences; the Terms of Use do not restrict the user's rights under them. Corresponding source of the MPL-2.0, LGPL and GPL components of a release: on request to lienhe@hasontech.vn.
+
 | Thành phần | Phiên bản | Giấy phép | Dùng ở đâu | Văn bản |
 |---|---|---|---|---|
-| LibreOffice | 26.8.1.1 | MPL-2.0 (+ LGPLv3/GPLv3 cho một số phần, theo header) | Engine của HST Office (build từ source, có patch HST) | `LICENSES/upstream/libreoffice/` |
+| LibreOffice | theo `upstream/libreoffice-lock.json` | MPL-2.0 (+ LGPLv3/GPLv3 cho một số phần, theo header) | Engine của HST Office (build từ source; tệp LibreOffice HST sửa giữ giấy phép của tệp) | `LICENSES/upstream/libreoffice/` |
 | Thư viện bên ngoài LibreOffice bundle (ICU, Skia, harfbuzz, …) | theo `download.lst` tại commit pin | nhiều loại | Trong gói cài | `license.xml` / `NOTICE` trong gói cài (`LICENSES/upstream/libreoffice/license.xml`) |
 | Từ điển chính tả tiếng Việt | 1.0.45 | GPLv2 | Kiểm tra chính tả `vi` | `LICENSES/upstream/libreoffice-dictionary-vi/` |
 | python-docx, openpyxl, python-pptx, lxml, Pillow, PyYAML, NumPy (build-time) | `requirements-templates.lock` | MIT / MIT / MIT / BSD-3-Clause / HPND / MIT / BSD-3-Clause | Sinh asset/kiểm thử, không đóng gói | PyPI |

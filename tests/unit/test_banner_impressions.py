@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Local banner display counts: day rollover, caps, 7-day retention, atomic shared file, batched writes."""
 import datetime
 import json

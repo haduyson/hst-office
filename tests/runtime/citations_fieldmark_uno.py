@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO helpers for the citation fieldmark checks (tests/runtime/check-citations-fieldmarks.py).
 
 A citation is a text fieldmark of type UNHANDLED whose code ("ADDIN HST_CITATION {json}") is the

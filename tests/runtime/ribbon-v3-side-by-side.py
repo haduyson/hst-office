@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Side-by-side images of the real ribbon and the locked v3 mockup, one per main tab at one width.
 
 Usage: python3 tests/runtime/ribbon-v3-side-by-side.py --mockup mockup-chot-v3.html --run DIR [--width 1920] --out DIR

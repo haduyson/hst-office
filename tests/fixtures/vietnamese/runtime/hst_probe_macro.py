@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Test-only Python macro copied into the ISOLATED test profile (never shipped). It runs the installed extension's
 logic inside the office process so undo-action callbacks and UNO calls behave exactly as in the product."""
 import json

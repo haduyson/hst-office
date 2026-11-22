@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Banner URL policy and anonymous campaign links; no network access."""
 from urllib.parse import urlencode, urlsplit, urlunsplit
 

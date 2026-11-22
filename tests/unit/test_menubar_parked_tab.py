@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-menubar-parked-tab.patch: after .uno:ToolbarMode applied a mode without a ribbon, every frame of the module
 shows its menubar again (a tab parked while its module went through ribbon modes came back without it).
 GUI: tests/runtime/check-ui-mode-tabs.py (menubar judged on every tab)."""

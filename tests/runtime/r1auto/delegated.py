@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Thin Windows wrappers; never replace the checks windows-smoke.yml already owns."""
 from pathlib import Path
 import re

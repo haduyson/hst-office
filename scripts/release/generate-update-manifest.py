@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate unsigned schema 3, schema 2 and legacy manifests from release assets and SHA256SUMS.
 
 latest-3.json (new clients) lists every platform, .rpm and AppImage included; latest-2.json and latest.json keep only

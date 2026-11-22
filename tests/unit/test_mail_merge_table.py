@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư recipient list: headers, column kinds, stable row keys, Vietnamese sorting and search, the checked
 recipients, file names from a pattern and the staging rows the engine merges from."""
 import unittest

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst_gui.Office for Windows: lets the hst_gui based runtime checks (written for Linux and Xvfb) run on Windows
 against an installed or administratively extracted HST Office, through windows_gui.WinOffice.
 

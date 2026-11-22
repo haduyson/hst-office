@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Cập nhật ngay" on macOS: the question warns before the office closes that the Mac will ask for the administrator
 password (the helper asks only after the office is gone, so a skipped password prompt would look like a no-op)."""
 import os

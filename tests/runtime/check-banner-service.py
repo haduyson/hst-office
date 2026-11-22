@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the banner UNO boundary or full service registration in an isolated user profile.
 
 Full: PYTHONPATH=<office>/program python3 tests/runtime/check-banner-service.py --soffice <office>/program/soffice

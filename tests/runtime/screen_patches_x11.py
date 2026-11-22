@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """High-rate screen sampling for the Linux tab switch flash check (X11, pure ctypes, no compositor needed).
 
 A grab reads a grid of small patches of one rectangle of the root window with XGetImage (each a few hundred

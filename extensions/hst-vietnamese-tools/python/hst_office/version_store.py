@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Store of "Phiên bản trước": copies of a file as it was on disk just before a save overwrote it.
 
 Layout under the user profile (<profile>/user/hst-versions, version_config.store): one folder per document, named by the

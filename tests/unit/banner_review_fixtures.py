@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Reusable adversarial fixtures; temporary keys, profiles and immutable artwork only."""
 from pathlib import Path
 import tempfile

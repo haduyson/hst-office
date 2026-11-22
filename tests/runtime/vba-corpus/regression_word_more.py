@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Regression cases for the Word Range and Selection members real macros use most, checking their effect."""
 
 WORD_MEMBERS = """Private Function Fresh() As Object

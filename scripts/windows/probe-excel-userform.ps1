@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Opens VBA UserForm sample files with what this Windows machine has, and says what was really tested.
 #
 #   powershell -File scripts\windows\probe-excel-userform.ps1 -Samples tests\fixtures\vba-forms

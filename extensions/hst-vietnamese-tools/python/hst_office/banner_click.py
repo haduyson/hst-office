@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Where a banner click goes: the click counter while it answers, else the company home page.
 
 The probe is sent only on a user click, carries no identifiers and is a HEAD of the manifest, because a

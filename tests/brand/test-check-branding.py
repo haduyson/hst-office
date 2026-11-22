@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """check-branding: asset verification, tree scan, allowlist semantics, CLI exit codes."""
 import json
 import os

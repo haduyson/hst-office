@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inside the disposable container: run the macros of each file and print one JSON line per result.
 
 argv: jobs.json. Each job: {"file": path under /corpus, "kind": "calc"|"writer", "only": optional

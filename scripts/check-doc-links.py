@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Ported from archive/onlyoffice-plugin-first:scripts/check-doc-links.py
 # Source commit: e0517d71c813535087c401b2683bec0784d71fd8.
 """Check relative Markdown file links; external URLs and anchors need separate QA."""

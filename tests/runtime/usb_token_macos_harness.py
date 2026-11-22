@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Native macOS profile, menu and Aqua dialog helpers for the USB Token probe."""
 from pathlib import Path
 import shutil

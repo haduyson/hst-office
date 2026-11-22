@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: the merge fields of the document. A field is a LibreOffice database field of the document's data source
 (mail_merge_store); its kind (mail_merge_format) is kept in the field itself: a vi-VN number format for numbers and
 dates, a computed column for the two word kinds. The engine merges with exactly that, and the preview writes the

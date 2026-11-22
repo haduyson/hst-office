@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The downloadable update-lock templates of the user guide (help/files) are exactly what
 scripts/release/build-update-policy-oxt.py --templates writes, and each format carries the profile's locks.
 tests/runtime/check-update-policy.py proves them in a real office (Linux here, Windows and macOS in CI)."""

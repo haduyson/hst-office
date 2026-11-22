@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Bibliography order: language groups, given-name or family-name sorting, first-citation order, year suffixes."""
 import unittest
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Picture properties follow Word's Layout: Position, Text Wrapping, Size. Used by check-dialogs-writer.py."""
 import base64
 import os

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A real 2x (Retina) desktop on a runner VM whose only display offers 1x modes.
 
 WindowServer's CGVirtualDisplay (the API DeskPad and BetterDisplay use) adds a display with a HiDPI mode; making it

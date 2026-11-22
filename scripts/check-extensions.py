@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Validate built .oxt packages: structure, safe ZIP paths, registration, notices, no remote resources.
 
 Usage: python3 scripts/check-extensions.py --directory dist/extensions
@@ -66,8 +67,8 @@ def self_test():
         "network in banner deadline": lambda d: d.update({BANNER_DEADLINE: d[BANNER_DEADLINE] + b"\nimport urllib.request\n"}),
         "subprocess in banner HTTP": lambda d: d.update({BANNER_FETCH: d[BANNER_FETCH] + b"\nimport subprocess\n"}),
         "socket in banner fetch": lambda d: d.update({BANNER_FETCH: d[BANNER_FETCH] + b"\nimport socket\n"}),
-        "network import": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport socket\n"}),
-        "urllib outside update_fetch": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: AGPL-3.0-only\nimport urllib.request\n"}),
+        "network import": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: LicenseRef-HST-Proprietary\nimport socket\n"}),
+        "urllib outside update_fetch": lambda d: d.update({"python/hst_office/x.py": b"# SPDX-License-Identifier: LicenseRef-HST-Proprietary\nimport urllib.request\n"}),
         "socket in update_fetch": lambda d: d.update({UPDATE_FETCH: d[UPDATE_FETCH] + b"\nimport socket\n"}),
         "subprocess in update_download": lambda d: d.update({UPDATE_DOWNLOAD: d.get(UPDATE_DOWNLOAD, b"") + b"\nimport subprocess\n"}),
         "urllib in update_launch": lambda d: d.update({UPDATE_LAUNCH: d.get(UPDATE_LAUNCH, b"") + b"\nimport urllib.request\n"}),

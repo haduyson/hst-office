@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Lists the accessibility nodes of one HST Office process through MSAA (oleacc), for windows-ribbon-mockup.py.
 # One line per node, depth-first: index, parent index (-1 for a root), depth, role, state, x, y, w, h, name (tab-separated).
 # Reads only; sends no key and no mouse event. The tree is the one windows-msaa-ribbon.ps1 reads.

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Whole-pixel pens and the pixel lattice of the HST glyph snapper.
 
 Pens: 1.65 units on the 24-unit grid become 1 px at every size (16, 24 and 32), the weight of the

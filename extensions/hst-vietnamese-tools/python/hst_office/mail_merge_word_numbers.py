@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, Word fields: the numeric picture switch \\# with Word's rules (ECMA-376 17.16.4.3). Pure Python.
 
   0 digit, # digit or a space, x drops digits, "." / "," radix and grouping, - + sign, 'text' literal, other

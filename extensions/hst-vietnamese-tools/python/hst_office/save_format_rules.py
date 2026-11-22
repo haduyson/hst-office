@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure rules of the save format check (save_format_check.py): what the warning offers, what is remembered, and what
 the core save code is told (hst-save-format-check.patch, hst-save-hst-functions-as-values.patch). No UNO here.
 

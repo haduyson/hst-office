@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: a converted formula takes the room its MathType equation took, so the pages do not move.
 
 Math's box is 9-19 % shorter than MathType's for the same point size; a formula sized to it shortened every line that

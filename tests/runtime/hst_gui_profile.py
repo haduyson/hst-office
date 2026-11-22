@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Profile side of the GUI runtime checks (hst_gui.py): the build user, the private locale, a settled and seeded
 fresh profile."""
 import os

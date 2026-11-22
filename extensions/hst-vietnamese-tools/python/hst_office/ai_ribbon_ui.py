@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Commands and labels of a notebookbar.ui as the ribbon shows them (helpers of ai_ribbon_map). Pure."""
 
 TOOL_ITEMS = {"GtkToolButton", "GtkMenuToolButton", "GtkToggleToolButton", "GtkRadioToolButton", "GtkToolItem"}

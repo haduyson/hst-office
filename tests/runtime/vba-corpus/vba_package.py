@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Smallest .xlsm and .docm packages around a VBA project from vba_project_writer."""
 import io
 import zipfile

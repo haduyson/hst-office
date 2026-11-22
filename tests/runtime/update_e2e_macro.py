@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # User Python script of the end-to-end update checks (update-e2e-drive.py, scripts/macos/update-e2e-probe.py).
 # The driver copies this file into the probe profile's Scripts/python with the ARGS line filled in, then invokes run()
 # over UNO. run() schedules, on the office's main thread, the dispatch of org.hst.office.update:Install on the current

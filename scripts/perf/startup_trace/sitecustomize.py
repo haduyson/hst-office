@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up tracer for the office's embedded Python, used only by scripts/perf/startup-timing.py.
 
 The timing harness puts this directory on PYTHONPATH and names a trace file in HST_STARTUP_TRACE; the office's

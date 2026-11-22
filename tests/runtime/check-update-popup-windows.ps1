@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # The new-version pop-up on a Windows test PC, without touching the installed HST Office or the user's update cache.
 #   -Phase prepare -Msi <msi> -Oxt <test package .oxt> [-Dir D:\hst-test\popup]  (SSH session) administrative image
 #            (msiexec /a) whose bundled extension is the test package (it honours HST_UPDATE_TEST_URL)

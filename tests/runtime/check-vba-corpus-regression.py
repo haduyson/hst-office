@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """VBA language and object-model regressions, in real VBA projects run in the disposable sandbox.
 
 Usage: check-vba-corpus-regression.py [--instdir upstream/libreoffice/instdir] [--image hst-vba-sandbox:1] [--work DIR]

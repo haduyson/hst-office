@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tooltips of the Writer ribbon UX rework (generate-ribbon-ux-writer.py): one short sentence of what the command
 does, shown by hst-ribbon-ux-engine.patch under "Label (Shortcut)". English msgid, Vietnamese msgstr."""
 

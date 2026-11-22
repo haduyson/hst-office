@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Open time of large documents in one office installation (HST Office or stock LibreOffice), one office per open.
 
     python large-file-open.py --soffice <soffice> --python <office python> --files <dir> --out <dir> --label <name>

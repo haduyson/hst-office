@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The tab row's feature search box is reachable by assistive technology (gtk3, vi_VN, AT-SPI).
 
 Usage: python3 tests/runtime/check-ribbon-tab-search-a11y.py [--instdir DIR] [--display :71] [--out DIR]

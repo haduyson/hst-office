@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One statement per Excel object-model member. A probe only says the member ran without an error; v is a Variant, s the first sheet."""
 
 SETUP = 'Dim v, s As Object\nSet s = Worksheets(1)\ns.Range("A1").Value = "Ten": s.Range("B1").Value = "So": s.Range("A2").Value = "An": s.Range("B2").Value = 2: s.Range("A3").Value = "Binh": s.Range("B3").Value = 3\n'

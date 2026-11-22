@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Mở tài liệu ▸ "Lối tắt ứng dụng": labelled per OS, hidden on Windows, asks before any change
 and shows failures instead of raising."""
 import os

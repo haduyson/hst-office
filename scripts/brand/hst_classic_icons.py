@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The "Cổ điển" icon style (hst_classic / hst_classic_dark): upstream Colibre with HST glyphs on top
 only for what Colibre does not draw, and for the few requests of FORCED.
 

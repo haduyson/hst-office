@@ -1,6 +1,6 @@
 # Kiểu trích dẫn của HST Writer
 
-Mỗi tệp `styles/<id>.json` là một kiểu trích dẫn do HST soạn từ chính các hướng dẫn gốc (sổ tay APA, IEEE, NLM/ICMJE, AMA, Chicago, MLA, Cite Them Right, ISO 690/TCVN 10256 và hướng dẫn trình bày luận văn, luận án của các trường Việt Nam ghi trong khóa `source`). Không tệp nào chép hay chuyển thể từ tệp `.csl` hoặc locale của dự án CSL (giấy phép CC BY-SA 3.0), nên các tệp kiểu theo giấy phép AGPL-3.0-only như phần còn lại của mã HST. Lúc build, `scripts/build-extensions.py` chép thư mục này vào gói ở `data/citation-styles/`; `scripts/check-extensions.py` báo lỗi khi bản trong gói khác bản ở đây.
+Mỗi tệp `styles/<id>.json` là một kiểu trích dẫn do HST soạn từ chính các hướng dẫn gốc (sổ tay APA, IEEE, NLM/ICMJE, AMA, Chicago, MLA, Cite Them Right, ISO 690/TCVN 10256 và hướng dẫn trình bày luận văn, luận án của các trường Việt Nam ghi trong khóa `source`). Không tệp nào chép hay chuyển thể từ tệp `.csl` hoặc locale của dự án CSL (giấy phép CC BY-SA 3.0), nên các tệp kiểu là mã độc quyền của HASON TECH (`LicenseRef-HST-Proprietary`) như phần còn lại của mã HST. Lúc build, `scripts/build-extensions.py` chép thư mục này vào gói ở `data/citation-styles/`; `scripts/check-extensions.py` báo lỗi khi bản trong gói khác bản ở đây.
 
 | id | Kiểu | Lớp |
 |---|---|---|

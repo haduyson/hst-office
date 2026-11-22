@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Control file and maintainer scripts of the single HST Office .deb (scripts/linux/make-single-deb.py):
 merge the split packages' data trees, Depends/Conflicts/Replaces, scripts and conffiles."""
 import os

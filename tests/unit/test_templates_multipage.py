@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fast checks of what keeps a long administrative document right page after page (no office needed).
 
 The runtime check tests/runtime/check-templates-multipage.py measures real exports; these guard the causes it found:

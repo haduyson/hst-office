@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST's persistent local log: what went wrong, kept on this machine and attached to an error report.
 
 <user profile>/user/hst-office/hst-office.log, rotated to hst-office.log.1 at 1 MB (two files, at most 2 MB). One

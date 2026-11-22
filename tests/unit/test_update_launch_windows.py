@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows "Cập nhật ngay": the helper starts elevated from the office window before the office quits.
 
 The helper used to ask for administrator rights itself after the office had closed: Windows treats that as a background
@@ -100,6 +101,16 @@ class ElevateAndQuit(unittest.TestCase):
         self.assertEqual(calls, [("elevated", ["powershell.exe", "x"], False), ("set", "SuspendQuickstartVeto", True),
                                  ("terminate",)])
         self.assertFalse(marker)
+
+    def test_started_callback_gets_the_elevated_pid_before_the_quit(self):
+        calls = []
+        desktop = FakeDesktop(calls)
+        with tempfile.TemporaryDirectory() as cache:
+            self.assertTrue(launch.elevate_and_quit(office(desktop), ["powershell.exe", "x"], cache, run=lambda argv: 4321,
+                                                    on_started=lambda pid: calls.append(("started", pid))))
+            self.assertTrue(launch.elevate_and_quit(office(desktop), ["powershell.exe", "x"], cache, run=lambda argv: 0,
+                                                    on_started=lambda pid: calls.append(("started", pid))))
+        self.assertEqual([call for call in calls if call[0] == "started"], [("started", 4321)])
 
     def test_cancelled_or_failed_quit_leaves_the_marker_for_the_helper(self):
         for options, expected in (({"saved": False}, False), ({"error": RuntimeError("disposed")}, "RuntimeError")):

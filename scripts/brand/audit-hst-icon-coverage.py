@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inventory static requests on installed surfaces; this is not a runtime trace.
 
 Use the patch's HST -> Colibre (HST Dark -> Colibre Dark -> Colibre) chain.

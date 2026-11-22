@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check what the Home tab of Writer, Sheets and Slides shows at 1366 and 1485 px, next to the banner (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-ribbon-home-fit.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress,draw]

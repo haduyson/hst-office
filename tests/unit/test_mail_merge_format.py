@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư value formats: vi-VN numbers and dates, words, the kinds offered per column, and reading a field's
 kind back from its column name and number-format code."""
 import datetime

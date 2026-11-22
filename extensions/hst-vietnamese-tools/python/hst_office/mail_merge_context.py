@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: what every command gets (mail_merge_handler.py): the office context, the frame and its document, the
 texts in the UI language, the document's session, the dispatch arguments, and the shared steps (ready, insert a
 field, refresh the preview, messages)."""

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build the KeyTip parity table: the familiar suite's letter for every HST ribbon command that has a counterpart.
 
 Usage: python3 scripts/ribbon/build-keytips-parity.py --tree PATCHED_TREE [--out data/ribbon/keytips-office-parity.json]

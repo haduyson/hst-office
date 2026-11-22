@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Event handler of the options page Tùy chọn ▸ HST Office ▸ Mở tài liệu (OptionsDialog.xcu, dialogs/DefaultApps.xdl).
 
 The page stores nothing (OK/Cancel have nothing to save). "defaultApps" runs the same action as the HST menu item;

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Start Center has no empty band below the menu bar (gtk3), and the document tab strip still takes its row.
 
 Usage: python3 tests/runtime/check-start-center-top-border.py --instdir DIR [--display :396]

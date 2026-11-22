@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build hst-update-policy.oxt (or a share/registry .xcd): an administrator lock of the HST Office update check.
 
   build-update-policy-oxt.py [--output dist/hst-update-policy.oxt] [--xcd FILE] [--reg FILE] [--mobileconfig FILE]

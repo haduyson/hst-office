@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Notice after the office repaired its settings file at start.
 
 A power cut right after the office wrote registrymodifications.xcu can leave it empty or unreadable. The office then

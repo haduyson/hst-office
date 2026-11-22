@@ -1,10 +1,11 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """PowerShell template of the Windows updater; update_helper_cmd.build_helper fills it in.
 
 The office starts this script elevated (update_launch.run_elevated) before it closes, then the script waits for the
 office to exit, re-checks SHA256, runs msiexec and reopens HST Office through the desktop shell (not elevated)."""
 
-POWERSHELL = r'''# SPDX-License-Identifier: AGPL-3.0-only
+POWERSHELL = r'''# SPDX-License-Identifier: LicenseRef-HST-Proprietary
 param(
     [Parameter(Mandatory=$true)][int]$ProcessId,
     [Parameter(Mandatory=$true)][string]$Installer,
@@ -22,6 +23,8 @@ $state = Join-Path (Split-Path -Parent $Log) 'update-result.json'
 # by the (unelevated) office, so it stops itself, installs nothing and reopens nothing.
 $cancel = Join-Path (Split-Path -Parent $Log) 'update-cancel'
 $msiLog = Join-Path (Split-Path -Parent $Log) 'msi-install.log'
+# Written by the office before it started this helper (update_guard): a copy of the office started meanwhile quits.
+$lock = Join-Path (Split-Path -Parent $Log) 'updating.lock'
 # The update folder is private to the user (os.makedirs(mode=0o700) on Windows: owner-only access). This helper runs
 # elevated, so what it creates is owned by Administrators and the user's office could not read update.log nor read and
 # delete update-result.json at the next start. Grant the folder's owner explicitly; new and existing files inherit it.
@@ -94,6 +97,8 @@ try {
 } catch {
     if (-not $stopped) { Write-Step ('Helper failed; exit code 1: ' + $_.Exception.Message) }
 } finally {
+    # Before the relaunch: the office started next must not take itself for a second copy started during the update.
+    Remove-Item -LiteralPath $lock -ErrorAction SilentlyContinue
     if ($stopped) {
         Write-Step 'Stopped before installing; the office stays open'
     } else {

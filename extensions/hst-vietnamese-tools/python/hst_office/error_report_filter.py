@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Privacy filter for diagnostic text sent with an error report (Trợ giúp ▸ Báo lỗi cho HASON TECH…).
 
 The report must never carry document content, document names or paths, user names or profile paths. HST's own log

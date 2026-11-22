@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that introductory, descriptive and legal texts are Vietnamese in every UI language.
 
 Usage: python3 tests/runtime/check-vi-intro.py [--instdir upstream/libreoffice/instdir]
@@ -6,7 +7,7 @@ Usage: python3 tests/runtime/check-vi-intro.py [--instdir upstream/libreoffice/i
            [--display :97] [--no-gui]
 
 Menus and functions follow the UI language; these texts do not (owner decision):
-  - About: description, "Bản phát hành này do HASON TECH cung cấp.", open-source line, contact;
+  - About: description, "Bản phát hành này do HASON TECH cung cấp.", licence line, contact;
   - the first-start welcome dialog (extension hst-vietnamese-tools);
   - the Start Center banner artwork and the solution buttons' names and tooltips;
   - the source-code notice at the top of Help > License Information (bilingual, kept) and the
@@ -35,12 +36,13 @@ ROOT = hst_gui.ROOT
 STATIC = (
     ("About description is Vietnamese, not translatable",
      "share/config/soffice.cfg/cui/ui/aboutdialog.ui",
-     "HST Office là bộ ứng dụng văn phòng nguồn mở", "utf-8"),
+     "HST Office là bộ ứng dụng văn phòng miễn phí", "utf-8"),
     ("About publisher line is Vietnamese in code", "program/lib*.so", "cung cấp.", "utf-16-le"),
-    ("About open-source line is Vietnamese in code", "program/lib*.so", "Phần mềm nguồn mở", "utf-16-le"),
+    ("About licence line is Vietnamese in code", "program/lib*.so", "Phần mềm độc quyền của HASON TECH", "utf-16-le"),
     ("Start Center welcome hint is Vietnamese in code", "program/lib*.so", "Chào mừng đến với ", "utf-16-le"),
     ("Start Center solution tooltip is Vietnamese in code", "program/lib*.so", "Trợ lý AI cá nhân, như một trợ lý thực thụ", "utf-16-le"),
-    ("License notice is bilingual (Vietnamese first)", "program/lib*.so", "HST Office là phần mềm nguồn mở", "utf-16-le"),
+    ("License notice is bilingual (Vietnamese first)", "program/lib*.so", "HST Office là phần mềm độc quyền của HASON TECH", "utf-16-le"),
+    ("License notice is bilingual (English second)", "program/lib*.so", "HST Office is proprietary software of HASON TECH", "utf-16-le"),
     ("License summary carries the HST copyright line", "program/lib*.so",
      "© 2026 HASON TECH · © 2000–2026 The Document Foundation và các tác giả LibreOffice", "utf-16-le"),
     ("Welcome dialog always loads Vietnamese texts",

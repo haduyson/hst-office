@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of the shortcut parity table on a built HST Office (Linux, GTK3, Xvfb, vi UI).
 
 Usage: python3 tests/runtime/check-shortcut-parity-runtime.py --instdir <instdir> [--out DIR] [--display :97]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Geometry measured by check-ribbon-layout.py --shots on synthetic screenshots: the ribbon body's height, the
 caption line of the groups and the 1 px separators of the approved 1.0.2 mockup (body 106 px, separators 6 px under
 its top and over its bottom, one caption line for every tab)."""

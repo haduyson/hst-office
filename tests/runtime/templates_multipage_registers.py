@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Registers (Decree 30, Annex IV) run to several pages: 120 entries typed downward as a clerk does must all print, with
 the header rows on every page, from the template and from its XLSX copy."""
 import os

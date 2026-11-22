@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Word-made mail-merge samples, written by the OOXML spec the way Word 2016+ writes them: a letter .docx whose
 w:mailMerge settings name an Excel (or CSV) recipient list, MERGEFIELDs with \\# \\@ \\* \\b \\f switches and IF
 fields with nested MERGEFIELDs; the recipient list as .xlsx (dates, numbers, a Text-formatted column) and as .csv.

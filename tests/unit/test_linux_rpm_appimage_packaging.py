@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure parts of the .rpm and AppImage repackaging (scripts/linux/rpm_spec.py, scripts/linux/appimage/
 appimage_desktop_integration.py): versions, ELF requires, spec text, launcher rewriting, per-user integration."""
 import json

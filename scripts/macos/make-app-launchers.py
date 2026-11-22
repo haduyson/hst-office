@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF.app into "HST Office.app/Contents/Helpers/".
 
 Usage (macOS, Xcode tools): python3 -I scripts/macos/make-app-launchers.py "<path>/HST Office.app" --arch arm64|x86_64

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Single source of truth for the HST Office release version.
 
 Reads <repo>/VERSION (one line, MAJOR.MINOR.MICRO) and <repo>/data/hst/release.json

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The HST Draw edits of the ribbon rework (generate-ribbon-ux-impress-draw.py); Draw's ribbon is the Slides one
 (generate-draw-ribbon.py), so it shares the Trang đầu, Chèn, Xem lại, Xem and Phần mở rộng edits."""
 import ribbon_ux_lib as L

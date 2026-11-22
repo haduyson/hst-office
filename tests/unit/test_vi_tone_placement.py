@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """New-style tone placement on oa/oe/uy for the Vietnamese UI translations."""
 from pathlib import Path
 import sys

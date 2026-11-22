@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Run the six citation commands inside a real HST build (no window: dialogs are replaced by recorders).
 
 Usage: python3 tests/runtime/check-citations-commands.py --instdir DIR [--out DIR] [--overlay-oxt FILE]

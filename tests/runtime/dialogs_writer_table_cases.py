@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Table Properties follows Word: Table, Row, Column, Cell, Alt Text. Used by check-dialogs-writer.py."""
 import os
 import threading

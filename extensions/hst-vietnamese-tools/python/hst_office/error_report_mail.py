@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """E-mail fallback of the error report: a mailto: link to lienhe@hasontech.vn with the report as readable text.
 
 Offered when the server is busy (429), fails (5xx) or cannot be reached. The user's mail program opens with the

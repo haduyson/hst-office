@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Error report body (schema 1 of the system.hasontech.vn error-report API): build, bound, validate, encode.
 
 Pure logic without UNO or network, shared by the dialog, the crash prompt and the tests. The body sent is exactly
@@ -10,7 +11,6 @@ import re
 import time
 import urllib.parse
 import uuid
-
 from .error_report_apps import app_name, server_key
 from .update_install_id import is_install_id
 from .update_logic import TEST_HOST

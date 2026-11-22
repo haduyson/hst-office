@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """In-process checks of citations while the user edits around them (run by check-citations-commands.py next to
 citations_commands_inprocess.py): moving a paragraph and updating renumbers; with change tracking on, the update
 records no change; a read-only document is refused and left alone. Returns JSON results."""

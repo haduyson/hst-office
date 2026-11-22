@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Quick access toolbar of the HST ribbon (hst-ribbon-adaptive-qat.patch), on a built office under Xvfb:
   - defaults: Lưu, Hoàn tác, Làm lại at the start of the tab row;
   - a right-click on the ribbon's Dán button and "Thêm vào thanh truy cập nhanh" adds Paste;

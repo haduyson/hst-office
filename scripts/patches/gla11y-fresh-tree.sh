@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Run the build's accessibility check (bin/gla11y with the parameters of solenv/gbuild/UIConfig.mk) on every UI
 # module the patch series touches, before pushing: a .ui change that passes the unit tests can still stop the
 # build there (unlabelled menu items, a labelled-by without its label-for, stale suppressions of a changed class).

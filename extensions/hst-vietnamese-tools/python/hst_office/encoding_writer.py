@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Convert legacy-encoded Writer text to Unicode per text portion (formatting run), as ONE undo step.
 
 Only portions of type "Text" are rewritten; fields, footnote anchors, redline markers, bookmarks and other

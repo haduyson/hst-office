@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-zoom-labels.patch: the View tabs' Zoom groups show large labelled buttons where the reference suite
 does, and those keep their labels at every width (gap list G10)."""
 import re

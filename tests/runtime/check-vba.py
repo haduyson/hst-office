@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of VBA authoring in HST Sheets, Writer, Slides and Draw (headless, fresh profile, soffice as hstbuild).
 
 Usage: python3 tests/runtime/check-vba.py [--instdir upstream/libreoffice/instdir] [--out tests/output/vba]

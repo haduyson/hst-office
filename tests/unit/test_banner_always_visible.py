@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The HASON TECH banner in every user interface and in HST PDF (hst-banner-always-visible.patch).
 
 Owner decision 14/11/2026: no user interface hides the banner; it always draws its artwork, at least

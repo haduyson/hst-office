@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Widget snapshots carry immutable verified bytes. Workers publish one coherent state tuple."""
 import json
 import os

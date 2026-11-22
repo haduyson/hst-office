@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The drop-down menus of the HST Sheets ribbon (generate-ribbon-ux-calc.py).
 
 A menu becomes an svtlo-ManagedMenuButton (the button that opens it) and a GtkMenu of GtkMenuItems at the top

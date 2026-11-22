@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Time and record HST Office document-tab actions on macOS, windowed and in native full screen.
 #   tab-probe.sh <HSTOffice_*.dmg> <out-dir>
 # Per mode: starts the app, samples its windows at 50 Hz (tab-probe-sampler.swift), records the screen

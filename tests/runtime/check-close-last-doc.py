@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Closing the last document over UNO keeps the office running (macOS: no crash restoring the default menu).
 
 Run with the office's own Python (it needs pyuno), headless:

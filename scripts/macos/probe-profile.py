@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Edit a user profile's registrymodifications.xcu for the macOS probes (stdlib only).
 
 probe-profile.py <profile> [--shown true|false|unset] [--transparency N] [--no-tip]

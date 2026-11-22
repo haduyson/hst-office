@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # TEST ONLY: copy a module-build patch overlay (scripts/linux/local-build.sh --modules) over an extracted
 # reference HST Office .deb. Never use the result as a release or on a user's machine.
 #   dpkg-deb -x HSTOffice_<release>_Linux_x86-64.deb ref/

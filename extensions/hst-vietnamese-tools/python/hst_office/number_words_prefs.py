@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The user's default of number and money reading, per user in /org.hasontech.hstoffice.NumberWords
 (core schema, hst-extension-settings-core.patch): unit, sub-unit, money and number reading options (Tùy chọn ▸ HST Office ▸ Đọc số và tiền), and
 what the "Đọc số thành chữ" dialog last used (number or money, text or formula). The dialog writes back what it

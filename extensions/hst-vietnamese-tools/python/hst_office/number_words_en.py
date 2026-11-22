@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """English number and money words for DOCSO/DOCTIEN with the "en" option (export invoices in USD).
 
 British usage, as taught in Vietnam: "one hundred and five", "twenty-one", "one thousand and five";

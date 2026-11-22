@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Home tab checks of check-ribbon-home-fit.py for the 1.0.2 ribbon: Find & Replace is a button of the "Chỉnh sửa"
 (editing) group, as in the reference suite; the old "Công cụ" block and its "Trang đầu ▾" menu are gone and the
 feature search is the search box of the tab row (hst-ribbon-feature-search.patch), not a Home button."""

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Edit a PDF in HST Draw with the HST ribbon (gtk3, vi_VN), the way users do from HST PDF.
 
 Usage: python3 tests/runtime/check-draw-pdf-edit.py [--instdir DIR] [--display :71] [--out DIR]

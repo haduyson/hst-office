@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The org.hst.office.update: command handler (menu "Kiểm tra cập nhật" and the infobar buttons).
 
 The Start Center creates it and adds a status listener for each update menu item while the splash screen is still
@@ -14,7 +15,7 @@ from . import diag_log, update_config
 
 HANDLER_NAME = "org.hst.office.vi.UpdateDispatchProvider"
 PROTOCOL = "org.hst.office.update:"  # update_ui.PROTOCOL (tests/unit/test_component_lazy_registration.py)
-COMMANDS = ("Check", "Download", "Install", "Notes", "Skip", "Available")
+COMMANDS = ("Check", "Download", "Install", "Notes", "Later", "Skip", "Available")
 # org.hst.office.update:Available: its status (IsEnabled) says a newer release is known; the File panel's
 # "Cập nhật HST Office" entry and the dot on the File tab listen to it. The check modules call set_available().
 AVAILABLE = {"release": None, "listeners": []}
@@ -45,7 +46,7 @@ def skip_release(ctx, version):
 
 
 class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
-    """org.hst.office.update:Check | Download | Install | Notes | Skip | Available."""
+    """org.hst.office.update:Check | Download | Install | Notes | Later | Skip | Available."""
 
     def __init__(self, ctx):
         self.ctx, self.frame = ctx, None
@@ -107,6 +108,13 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
     def _available(self):
         """The File panel entry: install the release found, else check now."""
         return self._install() if AVAILABLE["release"] is not None else self._check()
+
+    def _later(self):
+        """"Để sau" on the infobar: only the infobar closes. The version is not skipped, the File panel entry and the
+        File tab dot stay, and the next automatic check (CheckIntervalHours later) announces it again."""
+        from . import update_ui as ui
+        if self.frame is not None:
+            ui.remove_infobar(self.frame)
 
     def _skip(self):
         from . import update_ui as ui

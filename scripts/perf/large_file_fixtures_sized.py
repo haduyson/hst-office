@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Office fixtures at target file sizes (5/10/20/30/50 MB by default) for scripts/perf/large-file-open.py.
 
     python large_file_fixtures_sized.py <out-dir> [--sizes 50,30,20,10,5] [--only docx-images,xlsx-pivot,...]

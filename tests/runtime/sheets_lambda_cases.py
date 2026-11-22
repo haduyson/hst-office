@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """LAMBDA-family and GROUPBY/PIVOTBY cases of check-sheets-excel-functions.py (same format as
 sheets_excel_functions_cases.CASES; data in H1:J6). Array results are checked through SUM/INDEX because typed
 formulas do not spill in this release (see hst-sheets-lambda-functions.patch).

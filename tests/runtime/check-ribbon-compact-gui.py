@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Compact ribbon and quick access keys of Writer on a real GUI (gtk3, Xvfb, vi_VN): ready for the P5 build.
 
 Usage: python3 tests/runtime/check-ribbon-compact-gui.py --instdir DIR [--display :281] [--out DIR]

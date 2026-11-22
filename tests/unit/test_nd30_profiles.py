@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Rules profiles and the new document types: each profile keeps its own rules; expectations come from the source annexes."""
 import unittest
 

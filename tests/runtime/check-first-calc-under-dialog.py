@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Regression check: the first Sheets document of a session, opened while a start-up dialog keeps the focus.
 
 Usage (run with the office's own Python, any platform):

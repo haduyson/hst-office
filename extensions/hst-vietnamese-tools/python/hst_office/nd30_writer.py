@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Render a layout (hst_office.nd30_layout.build_layout) into Writer at the cursor, as ONE undo step.
 Page layout (optional) is applied first and is not part of Undo, see nd30_page.
 

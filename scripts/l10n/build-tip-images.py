@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build the Vietnamese/HST tip-of-the-day images from the upstream SVG sources.
 
 Usage: python3 scripts/l10n/build-tip-images.py [--tree upstream/libreoffice] [--out l10n/vi-tipoftheday]

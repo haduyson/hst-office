@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Linux updater script run with isolated local tool stubs: hash check, apt-get / pkcon, waiting and relaunch."""
 import os
 import shlex

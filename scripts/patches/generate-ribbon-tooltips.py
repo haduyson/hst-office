@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate patches/libreoffice/hst-ribbon-tooltip-descriptions.patch from data/ribbon/tooltip-descriptions.json.
 
   python3 scripts/patches/generate-ribbon-tooltips.py [--po PRISTINE_SFX2_VI_PO] [--check]

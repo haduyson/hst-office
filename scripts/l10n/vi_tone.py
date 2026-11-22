@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """New-style Vietnamese tone placement on the oa, oe and uy rhymes, as the glossary requires.
 
 At the end of a syllable the old style puts the tone on the second vowel (Xoá, hoà, khoẻ,

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Editing helpers of the ribbon UX rework generators (re-exported by ribbon_ux_lib.py)."""
 import xml.etree.ElementTree as ET
 

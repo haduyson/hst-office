@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Office local build queue: agents submit builds themselves, a dispatcher runs them on the build slots.
 
 Stable entry point (scripts/build-queue.sh, the systemd unit hst-build-queue.service); the code and the full usage

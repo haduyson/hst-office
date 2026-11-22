@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Setting "Lưu phiên bản trước khi ghi đè tệp" (Tùy chọn ▸ HST Office ▸ Phiên bản trước) and its administrator lock.
 
 The value lives in /org.hasontech.hstoffice.PreviousVersions/Enabled (core schema, hst-extension-settings-core.patch,

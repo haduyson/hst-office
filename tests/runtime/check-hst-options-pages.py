@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Mở tài liệu, ▸ Giao diện and ▸ Phiên bản trước on the real build: the pages load from the
 extension with their handlers, "Kiểu biểu tượng" reads and writes SymbolStyle, and the Options tree lists the pages.
 

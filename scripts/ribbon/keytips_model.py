@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Model of the ribbon KeyTips, shared by the parity table builder and its check.
 
 The C++ side lives in sfx2/source/notebookbar: HstKeyTipTable.hxx (general tables, `assign`), HstKeyTipOffice.hxx

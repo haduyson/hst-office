@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Write, detach and cancel the external updater without invoking a shell; quit the office behind it."""
 import os
 import signal
@@ -123,11 +124,17 @@ def quit_office(ctx):
     return closing
 
 
-def spawn_and_quit(ctx, argv, system):
+def spawn_and_quit(ctx, argv, system, on_started=None, before_quit=None):
     """Start the helper that waits for this office to exit, then quit the office (quit_office). When the quit is
-    cancelled at a save prompt, or fails, the helper is stopped and the office keeps running. True when quitting."""
+    cancelled at a save prompt, or fails, the helper is stopped and the office keeps running. True when quitting.
+    Between the two, on_started(pid) runs (update_guard's lock records the helper), then before_quit(proc), which
+    may wait for the helper and raise to keep the office open (update_helper_ready)."""
     proc, closing = spawn(argv, system), False
     try:
+        if on_started is not None:
+            on_started(proc.pid)
+        if before_quit is not None:
+            before_quit(proc)
         closing = quit_office(ctx)
     finally:
         if not closing:
@@ -150,17 +157,20 @@ def run_elevated(argv):
     return run(argv[0], subprocess.list2cmdline(argv[1:]))
 
 
-def elevate_and_quit(ctx, argv, cache_dir, run=run_elevated):
+def elevate_and_quit(ctx, argv, cache_dir, run=run_elevated, on_started=None):
     """Windows: start the elevated helper, then quit the office (quit_office). The office cannot stop an elevated
-    process, so a quit cancelled at a save prompt leaves the cancel marker, which the helper obeys. True when quitting."""
+    process, so a quit cancelled at a save prompt leaves the cancel marker, which the helper obeys. True when quitting.
+    on_started(pid) runs between the two when the helper's process ID is known."""
     marker = cancel_marker(cache_dir)
     try:
         os.unlink(marker)
     except FileNotFoundError:
         pass
-    run(argv)  # ElevationDeclined / OSError: the office has not been asked to close
+    pid = run(argv)  # ElevationDeclined / OSError: the office has not been asked to close
     closing = False
     try:
+        if on_started is not None and type(pid) is int and pid > 0:
+            on_started(pid)
         closing = quit_office(ctx)
     finally:
         if not closing:

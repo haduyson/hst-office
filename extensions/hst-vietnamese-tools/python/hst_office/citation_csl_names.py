@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Names and dates of imported CSL styles (cs:names / cs:name / cs:et-al, cs:date / cs:date-part).
 
 One deliberate difference from CSL: a Vietnamese name that is not inverted prints family name first

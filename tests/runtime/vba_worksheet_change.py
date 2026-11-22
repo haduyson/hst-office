@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Part of check-vba-editor.py: Worksheet_Change follows edits made by the user, not UNO calls."""
 import os
 import subprocess

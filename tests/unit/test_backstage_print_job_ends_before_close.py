@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-backstage-print-job-ends-before-close.patch: a job the Print page takes gets a close guard on its frame and its
 document; asked to close, either closes the File panel first, which cancels the job. Never a veto. The behaviour is
 checked on Windows by tests/runtime/check-backstage-print-close.py (session end, close() from a macro, Ctrl+W, X,

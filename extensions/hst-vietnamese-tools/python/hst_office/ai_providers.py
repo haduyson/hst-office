@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """AI providers of the Trợ lý AI: OpenAI, Google Gemini and Anthropic Claude. Pure: no uno, no network.
 
 Each provider turns (model, system text, user text) into one HTTPS request and its JSON answer back into text.

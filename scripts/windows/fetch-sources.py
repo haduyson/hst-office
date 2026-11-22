@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Download the pinned LibreOffice tarballs and verify sha256 from upstream/libreoffice-lock.json.
 
 Usage: python -I scripts/windows/fetch-sources.py --dest C:/hst/dl

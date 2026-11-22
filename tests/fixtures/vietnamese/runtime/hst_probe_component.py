@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Test-only UNO component (never shipped): exposes hst_probe_macro functions through XJob so the runtime
 check can execute the installed extension's code inside the office process."""
 import os

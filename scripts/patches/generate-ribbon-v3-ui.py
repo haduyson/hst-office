@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate patches/libreoffice/hst-ribbon-v3-ui.patch: the four ribbons' .ui files laid out as the v3 design.
 
 usage: generate-ribbon-v3-ui.py --tree TREE [--out PATCH] [--check]

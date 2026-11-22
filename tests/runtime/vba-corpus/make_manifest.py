@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The corpus as a manifest, no third-party files: fetch_corpus.py gets them from their pinned sources. Usage: make_manifest.py OUT.json SCAN:INDEX:POLICY..."""
 import json
 import sys

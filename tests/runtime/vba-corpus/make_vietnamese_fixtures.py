@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Write .xlsm files whose VBA source is stored in Windows-1258 and Windows-1252. Usage: make_vietnamese_fixtures.py OUTDIR JOBS.json
 
 Each file has assertion functions returning "OK" only when text and identifiers ran right. Vietnamese identifiers in Windows-1258

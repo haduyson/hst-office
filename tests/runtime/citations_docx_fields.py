@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Read the complex fields of a .docx with the standard library only (no office code).
 
 This is what another word processor sees: for each w:fldChar begin/separate/end group, the field

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Writer selection probing (writer_selection, nd30_insertion) and the commands that use it, on fakes of the office's
 objects (writer_selection_fakes) whose view cursor throws from its text methods like the real one."""
 import unittest

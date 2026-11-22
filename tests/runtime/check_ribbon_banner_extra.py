@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """check-ribbon-banner.py, part 2: URL logger, fallback/oversized-image run, dark theme, entry point."""
 import argparse
 import json

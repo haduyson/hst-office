@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """scripts/macos/fetch-verified-dmg.sh: the old-profile job's beta.5 dmg comes from the cache, then GitHub, then the
 published URL once, and only a file with the expected sha256 is accepted."""
 import hashlib

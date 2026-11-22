@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fast downscaled grabs of the whole Windows screen (GDI StretchBlt) and the "desktop shows through" measure of
 check-windows-tab-switch-flash.py. Pure ctypes, no third-party module (runs in the office's own python.exe)."""
 import ctypes

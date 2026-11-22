@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The picture and table style galleries on the ribbon of HST Writer, Sheets and Slides (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-style-galleries-screen.py --instdir DIR [--display :83] [--out DIR] [--dark]

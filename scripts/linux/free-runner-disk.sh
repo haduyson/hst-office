@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Free disk on a GitHub-hosted Ubuntu runner for the LibreOffice build and create $HST_WORK.
 # Removes preinstalled toolchains the HST Office build never uses (Android SDK, .NET, Haskell,
 # hosted tool caches, Swift, PowerShell, cached Docker images) and records disk/RAM/CPU

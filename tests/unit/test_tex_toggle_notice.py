@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức reports on the status bar, never in a modal box: the line for converted, failed and mixed
 runs, and the line going away on the timer or the next key press or click without consuming the event."""
 import sys

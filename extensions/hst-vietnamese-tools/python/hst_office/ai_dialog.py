@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Trợ lý AI dialog of one action (FormulaWrite, FormulaExplain, Writing, Help).
 
 The input box is prefilled from the document (the selection, or the formula of the cell) and stays editable; nothing

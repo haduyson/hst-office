@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime sharpness check of the HST icon themes, measured on VCL's own rasters.
 
 The metric is the fringe share: of the inked pixels of an icon (alpha >= 8 %), the share that is

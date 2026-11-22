@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO side of the multi-page template check: create a document from a template (or through the wizard renderer), grow
 its body to N pages with realistic Vietnamese text, export PDF/ODT/DOCX/DOC and reopen the copies.
 

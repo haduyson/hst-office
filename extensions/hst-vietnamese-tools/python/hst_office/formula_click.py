@@ -1,6 +1,9 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: double-clicking a MathType equation asks to convert it (AskConvertFormula) instead of trying to
-start MathType, which the office cannot do. Every other double-click goes on as usual.
+start MathType, which the office cannot do without it. Where MathType is installed (formula_mathtype_server), the
+double-click goes on as usual and MathType opens the equation, as in HST Office 1.0.2. Every other double-click goes
+on as usual too.
 
 A mouse click handler on each document view (XUserInputInterception, attached by formula_open_job at
 OnViewCreated). It looks at the second press of a left double-click only: the first press has selected the object.
@@ -28,6 +31,33 @@ def selected_embedded(controller):
     return None
 
 
+def selected_class_id(controller):
+    """The OLE class id of the selected embedded object ("0002CE03-0000-0000-C000-000000000046"), "" if none.
+    Read from the object's CLSID property: the object is neither stored nor unloaded."""
+    selection = controller.getSelection()
+    if selection is None:
+        return ""
+    if not selection.supportsService("com.sun.star.text.TextEmbeddedObject"):
+        if not (hasattr(selection, "getCount") and selection.getCount() == 1):
+            return ""
+        selection = selection.getByIndex(0)
+        if selection.getShapeType() != "com.sun.star.drawing.OLE2Shape":
+            return ""
+    return (selection.CLSID or "").upper()
+
+
+def opens_in_mathtype(controller, installed=None):
+    """True when the selected object is a MathType or Equation 3.x equation and MathType, its program, is installed:
+    the office's own double-click opens it there."""
+    from . import formula_ole
+    class_id = selected_class_id(controller)
+    if class_id not in (formula_ole.EQUATION3, formula_ole.MATHTYPE):
+        return False
+    if installed is None:
+        from .formula_mathtype_server import server_installed as installed
+    return installed(class_id)
+
+
 def is_mathtype_selected(ctx, controller):
     from . import formula_convert, formula_ole
     embedded = selected_embedded(controller)
@@ -39,13 +69,11 @@ class _AskLater(unohelper.Base, XCallback):
         self.ctx, self.frame = ctx, frame
 
     def notify(self, data):
+        # Through DispatchHelper, which parses the URL: a URL struct with only Complete set has no Protocol, the
+        # extension's dispatch provider refused it, and in 1.0.3 the double-click was swallowed with no question.
         try:
-            import uno
-            url = uno.createUnoStruct("com.sun.star.util.URL")
-            url.Complete = COMMAND
-            dispatcher = self.frame.queryDispatch(url, "", 0)
-            if dispatcher is not None:
-                dispatcher.dispatch(url, ())
+            helper = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.ctx)
+            helper.executeDispatch(self.frame, COMMAND, "", 0, ())
         except Exception:  # noqa: BLE001
             diag_log.exception("formula_click")
 
@@ -58,6 +86,8 @@ class FormulaClickHandler(unohelper.Base, XMouseClickHandler):
         if event.ClickCount != 2 or event.Buttons != LEFT:
             return False
         try:
+            if opens_in_mathtype(self.controller):
+                return False  # MathType edits it, as a double-click always did before HST Công thức
             if not is_mathtype_selected(self.ctx, self.controller):
                 return False
             callback = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.AsyncCallback", self.ctx)

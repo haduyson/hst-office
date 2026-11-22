@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Set the primary display's real scale on Windows without the Settings app or a sign-out (tooling Python).
 
 The Settings route timed out on every runner (r1-auto Windows runs 42475460387, 42744370109, 42748674627 at 150%).

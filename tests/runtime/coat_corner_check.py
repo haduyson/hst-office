@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Checks the rounded corners of the HST coat in a screenshot, as the eye sees them.
 
 Every control outlined in a coat border colour (light #6E7A8B, dark #8691A5) is found by its straight edges:

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pictures, .docx, .pptx and .pdf fixtures of scripts/perf/large_file_fixtures.py (Pillow, python-docx, python-pptx)."""
 import io
 import random

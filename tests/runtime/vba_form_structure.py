@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Structural check of VBA UserForms in a saved file, against MS-CFB, MS-OVBA and MS-OFORMS (no Office needed).
 
 Usage: python3 tests/runtime/vba_form_structure.py FILE.xlsm|.docm|vbaProject.bin [...]

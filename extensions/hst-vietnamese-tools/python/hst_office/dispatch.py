@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ProtocolHandler (Vietnamese in every UI language: product policy) for the org.hst.office.vi: command URLs used by the HST menu and toolbar."""
 import importlib
 import os

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the two even toolbar rows beside the window banner (gtk3, real GUI).
 
 Usage: python3 tests/runtime/check-toolbar-two-rows.py --instdir DIR [--display :172] [--out DIR]

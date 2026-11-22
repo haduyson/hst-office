@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure parts of scripts/linux/make-rpm.py: RPM version, ELF dependency scan and the spec file text.
 
 Requires are computed here, not by rpmbuild (AutoReqProv: no): every DT_NEEDED soname of the 64-bit ELF files in
@@ -11,7 +12,9 @@ import re
 
 PACKAGE = "hst-office"
 INSTALL_ROOT = "/opt/hst-office1.0"
-LICENSE = "MPL-2.0 AND AGPL-3.0-only"
+# LibreOffice-derived code keeps MPL-2.0 (with the licences of bundled components in LICENSE); HST's own code is
+# proprietary (HST Office Software Terms of Use, "HST Office" section of /opt/hst-office1.0/LICENSE).
+LICENSE = "MPL-2.0 AND LicenseRef-HST-Proprietary"
 URL = "https://office.hasontech.vn"
 VENDOR = "HASON TECH"
 PACKAGER = "HASON TECH <lienhe@hasontech.vn>"

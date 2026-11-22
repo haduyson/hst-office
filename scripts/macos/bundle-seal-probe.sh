@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Prove that an HST Office session leaves its own app bundle untouched when the bundle is user-writable (an admin's
 # /Applications): no file added or rewritten, `codesign --verify --deep --strict` still passes.
 #   bundle-seal-probe.sh <HSTOffice_*.dmg> <out-dir> [required|informational]

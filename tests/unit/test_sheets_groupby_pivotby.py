@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Sheets has GROUPBY and PIVOTBY on the LAMBDA callables (hst-sheets-groupby-pivotby.patch).
 
 Read from the patch, so no LibreOffice tree is needed. C++: CppunitTest_sc_excelcompat_functions_test

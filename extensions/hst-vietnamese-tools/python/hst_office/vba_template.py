@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Text of the VBA modules HST creates for "Macro VBA" (pure Python, no UNO; unit-tested).
 
 Every new module starts with Option VBASupport 1, so VBA syntax and the object names of the

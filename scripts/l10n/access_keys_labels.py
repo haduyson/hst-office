@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Labels and mnemonics of check-access-keys.py: PO escaping, the access key of a label, the label shown."""
 import ast
 import json

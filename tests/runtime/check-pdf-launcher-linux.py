@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF's Linux launcher arguments (hst-pdf-launchers.patch, hst_office/pdf_open.py) on a real office.
 
 Usage: python3 tests/runtime/check-pdf-launcher-linux.py --instdir <dir with program/soffice> [--display :93]

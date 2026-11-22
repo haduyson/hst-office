@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure range and grid logic for converting legacy Vietnamese text in Calc (no `uno`).
 
 A rect is (sheet, first_col, first_row, last_col, last_row), all inclusive and zero based. A selection may hold

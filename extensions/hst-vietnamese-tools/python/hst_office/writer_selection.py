@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What the user has selected in a Writer view, read without the view cursor's text methods.
 
 The view cursor's getText/getStart/gotoEnd/... throw RuntimeException("no text selection") whenever the view's

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The TCVN3/VNI table in the WMF import patch matches data/vietnamese/encoding-maps.json."""
 import importlib.util
 import os

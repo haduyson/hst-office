@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Terms for imported CSL styles when the style's own <locale> does not define them. Written by HST (plain English
 and Vietnamese words), not taken from the CSL locale files. Key: (name, form) -> (singular, plural)."""
 from .citation_terms import MONTHS_EN, MONTHS_EN_ABBR

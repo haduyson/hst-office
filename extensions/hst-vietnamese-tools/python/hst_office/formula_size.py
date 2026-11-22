@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: a converted MathType equation keeps the scale Word shows it at. An equation resized in Word keeps
 MathType's point sizes in its data; the resize lives only in its shown size (.docx shape style, .rtf \\objh and
 \\pichgoal, .doc PICF), while the object's own size and its preview picture stay at MathType's 100 %. The shown size

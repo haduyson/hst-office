@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Names in bibliography entries and in-text citations, following the style options (citation_style_options).
 
 Vietnamese names are written in full and in their own order by default ("Nguyễn Văn An"); styles may invert them

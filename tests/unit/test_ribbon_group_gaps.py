@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon groups are as wide as their controls, not wider (hst-ribbon-group-gaps.patch).
 
 - VclGrid: a ribbon group's caption wider than its controls no longer stretches their columns (which left

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Win32 window queries for the Windows GUI checks (ctypes; importable on Windows only): the office's top-level
 windows, their rectangles, and the `Win32` api object windows_gui_guard decides on."""
 import ctypes

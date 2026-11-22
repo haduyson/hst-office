@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What the update server sees with the anonymous install ID (local plain-HTTP server, test-build override), that
 both check entry points attach it, and that it never reaches an error message, the local log or an error report."""
 import http.server

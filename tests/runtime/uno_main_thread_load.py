@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Load documents from a UNO client on the office's main thread (OnMainThread), as a user's open does.
 
 Called over the UNO bridge, loadComponentFromURL builds the frame, sidebar and toolbars in the bridge thread. On

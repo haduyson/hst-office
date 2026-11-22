@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Do the launcher apps of HST Office.app (Contents/Helpers) keep a valid signature, and pass Gatekeeper, once copied
 # out of the bundle the way hst_office/mac_app_launchers.py copies them (ditto --noqtn)? Also assessed with a
 # quarantine flag, as if a user had downloaded the copy. Gatekeeper is only meaningful for a Developer ID signed and

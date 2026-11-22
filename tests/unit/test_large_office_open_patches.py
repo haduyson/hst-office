@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Large office-document open fixes in patches/libreoffice (offline: reads the patch hunks).
 
 - hst-docx-comments-parse-once.patch: comments.xml is read once and cut per <w:comment>; every comment parses only

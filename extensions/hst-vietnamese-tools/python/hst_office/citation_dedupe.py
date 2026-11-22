@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Duplicate detection of references: normalised DOI, then ISBN-13, then title + year + first family name
 (accents and case ignored). DOIs keep their parentheses: "10.54607/hcmue.js.18.8.3112(2021)" is a real DOI."""
 import re

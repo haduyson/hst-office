@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese text helpers (BODAU, TACHHO, TACHTEN, name order), the Sheets utilities' decisions, and the add-in
 contract: CalcAddIns.xcu, the IDL, the compiled type library and the package manifest agree."""
 import os

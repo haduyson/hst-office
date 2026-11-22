@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up questions on the real build (Linux): one modal question per start, welcome first, then
 "Mở tài liệu văn phòng bằng HST Office?" once; "Đồng ý" sets the launchers with xdg-mime, "Để sau" waits.
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate useful blank worksheets with executable OpenFormula expressions."""
 from .odf import NS, document, fonts, node, paragraph, style, xml
 from .sheet_styles import build as style_document, settings

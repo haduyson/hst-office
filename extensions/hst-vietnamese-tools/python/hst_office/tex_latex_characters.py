@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: the characters of LaTeX math as pieces, and scripts on a piece (tex_latex_reader)."""
 from . import tex_starmath_symbols as sym
 from .tex_starmath_pieces import (BAR, BIN, CLOSE, DEGREE, FUNC, LIMFUNC, NUM, NUMPUNCT, OP, OPEN, ORD, REL, SPACE,

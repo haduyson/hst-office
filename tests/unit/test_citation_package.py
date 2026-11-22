@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The extension package carries exactly the citation styles of data/citation/styles (which match their source in
 scripts/citation_styles_*.py), and the lookup helper is the only citation module allowed to open HTTPS connections."""
 import io

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Build the HST Office disk image from an app bundle with the HST layout (scripts/macos/dmg-settings.py).
 #   build-dmg.sh <path/HST Office.app> <out.dmg>
 # Env: HST_PYTHON (python with dmgbuild, default python3). Used for the unsigned build and again

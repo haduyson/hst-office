@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: the state of one document while the office runs: its settings (mail_merge_store meta), the recipient
 list read from the source file (re-read when the file changed on disk), the preview switch and the recipient shown.
 Sessions are kept per document (RuntimeUID) and forgotten when the document closes or another list is chosen."""

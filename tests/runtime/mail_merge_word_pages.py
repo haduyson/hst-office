@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pages of a merged document, for check-mail-merge-word.py: one page per recipient, as Word gives, on screen, in a
 PDF export and on paper (printed to a file). Each recipient restarts the page numbering at 1; Writer would add a
 blank page before recipients 2 and 3, the HST mail merge marks its results so that it does not (and does not print

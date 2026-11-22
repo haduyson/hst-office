@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"In hai mặt" (two-sided printing) for every administrative document type: the rule per profile and its application.
 
 Rule table, with the clause each row follows (also in help/nd30.html and the S4 report):

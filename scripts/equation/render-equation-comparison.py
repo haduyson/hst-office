@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Render each sampled equation twice through LibreOffice (UNO): the original WMF/EMF preview
 # (what MathType drew) and the converted StarMath formula; then build side-by-side contact sheets.
 import sys, os, json, subprocess, uno

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Key helpers of check-windows-keytips-office-parity.py: gated chords to a verified HST window, and the classic
 menu bar checks (Alt alone and F10 activate a shown menu bar; with it hidden, Alt shows the KeyTips)."""
 import os

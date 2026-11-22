@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Markdown table of every <label>.json that scripts/perf/startup-timing.py wrote in a directory.
 
 Usage: startup-timing-summary.py OUT-DIR

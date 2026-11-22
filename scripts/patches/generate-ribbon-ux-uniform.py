@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate the uniform group layout of the four HST ribbons (patches/libreoffice/hst-ribbon-ux-uniform-layout.patch).
 
 Usage: scripts/patches/generate-ribbon-ux-uniform.py --tree DIR [--out PATCH] [--check]

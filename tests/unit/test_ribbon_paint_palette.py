@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon owner-draw palette (vcl HstRibbonPaint.cxx from hst-ribbon-paint.patch).
 
 The colours are taken from the patch and checked against the ribbon panel colours of

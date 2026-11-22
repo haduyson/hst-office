@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The two buttons of Tùy chọn ▸ HST Office ▸ Trợ lý AI that talk to the provider, only when pressed: "Tải danh sách"
 (the models the key may use) and "Kiểm tra khóa" (a one-word question). Each runs on a worker thread; the answer
 is shown in the page's status line on the main thread."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up update job without an office: UNO modules are stubbed, settings and UI are recorded.
 
 Covers: AutoCheck off, 24 h throttle (time stored after a successful check only), retries after a failure,

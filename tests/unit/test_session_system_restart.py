@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """An unclosed session says whether the computer started again after the office's last sign of life.
 
 Two reports from one PC (the second one describes only "sleep mode") both read "previous session not closed", no

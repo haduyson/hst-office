@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Sheets command "Xóa dòng trống": delete the rows with no content in the used area (or in the selected rows).
 
 Two ways, both one undo step:

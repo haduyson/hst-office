@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """X11 driver of check-citations-dialogs.py: find a window by its exact title, measure it, screenshot it and type
 keys into it (xdotool and ImageMagick's import on a dedicated display such as Xvfb)."""
 import os

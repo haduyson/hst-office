@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Package structure and resource validation helpers."""
 import hashlib
 import json
@@ -50,7 +51,9 @@ LOCAL_SYSTEM = ("python/hst_office/screen_work_area.py",  # ctypes user32 System
                 "python/hst_office/windows_fault_note.py",  # ctypes kernel32 SetEnvironmentVariableW: the crash note's path
                 # the AI API keys in the OS credential store: advapi32 Cred*, Security.framework, libsecret (local D-Bus)
                 "python/hst_office/ai_keystore_windows.py", "python/hst_office/ai_keystore_macos.py",
-                "python/hst_office/ai_keystore_linux.py")
+                "python/hst_office/ai_keystore_linux.py",
+                "python/hst_office/update_guard_process.py",  # is the update helper alive (ctypes OpenProcess, kill 0), proc_pidpath
+                "python/hst_office/mac_native_window.py")  # ctypes Objective-C runtime: an office window's NSWindow full screen state
 UPDATE_LAUNCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|ctypes)\b", re.M)
 LOCAL_TOOL_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc)\b", re.M)
 USB_WORKER_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess)\b", re.M)
@@ -160,7 +163,7 @@ def check_content(zf, names, errors):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:
                 errors.append("%s exceeds %d lines" % (name, MAX_LINES))
-            if "SPDX-License-Identifier: AGPL-3.0-only" not in text[:300]:
+            if "SPDX-License-Identifier: LicenseRef-HST-Proprietary" not in text[:300]:
                 errors.append("%s lacks the SPDX header" % name)
         if name.endswith(".json"):
             json.loads(data.decode("utf-8"))

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Private HTTPS helper, isolated so DNS, TLS, redirects and reads share one cancellable deadline."""
 import json
 from pathlib import Path

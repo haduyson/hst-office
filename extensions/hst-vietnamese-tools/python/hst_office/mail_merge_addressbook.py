@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ Chọn người nhận ▸ Chọn từ danh bạ: a data source already registered in the office (an address book
 set up with Công cụ ▸ Nguồn sổ địa chỉ, a database file, ...). The document stores it as "danhba:<source>\\t<table>";
 its rows are read through SDBC into a mail_merge_table.Table (numbers and dates keep their type)."""

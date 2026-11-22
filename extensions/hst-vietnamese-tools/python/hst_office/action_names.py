@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The names of the commands in actions.COMMANDS (org.hst.office.vi:<name>), for dispatch."""
 from . import citation_command_names
 
@@ -10,4 +11,4 @@ ACTION_COMMANDS = frozenset((
     "Nd30Wizard", "ToggleDuplex", "ConvertEncoding", "FormatDate", "FormatDateLong", "FormatMonthYear", "FormatDateDash",
     "FormatVnd", "FormatPercent", "ImportCsv", "EditVba", "NumberToWords", "RemoveDiacritics", "SplitName",
     "SortByGivenName", "DeleteBlankRows", "PreviousVersions", "OpenInHstPdf", "ChemFormula", "ConvertFormulas",
-    "AskConvertFormula", "FormulaTemplates", "TexToggle")) | citation_command_names.NAMES
+    "AskConvertFormula", "FormulaTemplates", "NewEquation", "TexToggle")) | citation_command_names.NAMES

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dates in citations. Vietnamese full dates follow the administrative convention (day below 10 and months 1–2
 get a leading zero): "07 tháng 5 năm 2009", "05 tháng 02 năm 2024".
 

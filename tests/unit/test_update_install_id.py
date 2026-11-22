@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Anonymous install ID of the update check, without an office: ID format, persistence, opt-out (user and
 administrator settings) and the query string. The request itself: test_update_install_id_request.py."""
 import os

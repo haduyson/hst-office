@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Registers of Decree 30/2020, Annex IV: a cover sheet and the register itself, with the annex's numbered columns."""
 from .odf import NS, document, fonts, node, paragraph, style, xml
 from .sheet_styles import settings

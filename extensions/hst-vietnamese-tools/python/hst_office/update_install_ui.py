@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Window helpers of "Cập nhật ngay" (update_install): the question dialog, the window that parents a message, and
 where this installation lives. update_install re-exports them; tests patch them there."""
 import os

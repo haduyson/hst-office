@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The result of a failed "Cập nhật ngay", shown once when the office starts again.
 
 The external helper (update_helper_scripts*.py, update_helper_cmd.py) writes update-result.json beside update.log when
@@ -15,7 +16,7 @@ from .update_fetch import release_info
 
 STATE_NAME = "update-result.json"
 MAX_SIZE = 1024
-CODES = ("auth", "install", "verify", "tool", "wait", "readonly")
+CODES = ("auth", "install", "verify", "tool", "wait", "readonly", "busy")
 
 
 def take(cache, current_release):

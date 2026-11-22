@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """How the extension registers "Phiên bản trước" (job events, command in the File menu, schema, options page), the
 3-minute AutoRecovery default, and the Vietnamese texts with their size and time formats."""
 import json

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Where the Trợ lý AI keeps the user's API keys: never in plain text, never in the profile's settings.
 
 Order: the operating system's credential store (Windows Credential Manager, macOS Keychain, the Linux Secret

@@ -2,6 +2,7 @@
 
 - Trạng thái: **Accepted** — quyết định của chủ dự án ngày 2026-10-29 12:34 (Asia/Ho_Chi_Minh).
 - Thay thế: [ADR 0001](0001-plugin-first-unmodified-upstream.md) (plugin-first trên ONLYOFFICE).
+- Cập nhật 2026-11-22 (chủ dự án): từ bản 1.0.4, mã HST viết mới theo giấy phép độc quyền `LicenseRef-HST-Proprietary` ([LICENSE](../../LICENSE)), không còn AGPL-3.0; các bản 1.0.0–1.0.3 đã phát hành theo AGPL-3.0 ([LICENSES/historical](../../LICENSES/historical/README.md)). Dòng "Giấy phép" dưới đây giữ nguyên làm lịch sử quyết định; file LibreOffice đã sửa vẫn giữ MPL-2.0. Xem [LICENSE_AUDIT](../LICENSE_AUDIT.md).
 - Plan: [plans/261029-1234-hst-office-libreoffice-standalone](../../plans/261029-1234-hst-office-libreoffice-standalone/plan.md).
 
 ## Bối cảnh

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Print scaling of HST Sheets (hst-sheets-print-scaling.patch; the ribbon places it in hst-ribbon-ux-calc.patch), read
 from the patches.
 

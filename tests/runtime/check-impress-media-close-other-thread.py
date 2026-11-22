@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: Slides documents with linked video and audio, played for a while, then closed through UNO from this
 script's thread (XCloseable.close, as a script or add-in does). The office must survive.
 

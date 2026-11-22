@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Run probe-vba-headless.py with an installed office's own Python, bounded in time (Git Bash on a Windows runner).
 #   run-vba-probe.sh <program dir (Windows path)> <output dir> [probe options, e.g. --info-only docm]
 # On timeout the office's soffice processes are ended so the next step starts clean; the exit status is the probe's

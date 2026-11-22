@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: hovering a ribbon button shows the rich tooltip, on an INSTALLED HST Office (console session).
 
 The tip (hst-ribbon-rich-tooltips.patch) has the name and shortcut in bold and, for a command with a sentence, the

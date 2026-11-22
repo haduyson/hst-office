@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon banner geometry (sfx2 HstBannerGeometry.hxx from hst-ribbon-banner.patch; the 1.0.2 mockup's banner in the
 106 px body from hst-ribbon-mockup-frame.patch, class MockupFrameGeometryTest).
 

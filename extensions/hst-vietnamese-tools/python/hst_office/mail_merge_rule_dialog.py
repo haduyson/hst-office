@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ Quy tắc: one dialog for the four rules (mail_merge_rules.py).
   if    Nếu…Thì…Khác: name, column, comparison, value, text when true, text when false ({Cột} allowed)
   skip  Bỏ qua bản ghi nếu: column, comparison, value; lists how many recipients it leaves out

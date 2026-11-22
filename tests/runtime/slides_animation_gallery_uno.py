@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO helpers of check-slides-animation-gallery.py: the evidence rows, the command and its state,
 shape selection, and the main animation sequence read from the slide's animation tree."""
 import time

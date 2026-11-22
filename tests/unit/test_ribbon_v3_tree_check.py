@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """scripts/patches/ribbon_v3_tree_check.py: a notebookbar.ui against the v3 ribbon data."""
 import json
 import os

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tài liệu chưa lưu on Linux: a document closed without saving keeps its last recovery copy for 7 days.
 
 Usage: python3 tests/runtime/check-unsaved-documents.py --instdir <instdir> [--out tests/output/unsaved-documents]

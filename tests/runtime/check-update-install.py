@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of "Cập nhật ngay" in a real HST Office (soffice runs as hstbuild, never as root).
 
 Usage: python3 tests/runtime/check-update-install.py [--instdir upstream/libreoffice/instdir]

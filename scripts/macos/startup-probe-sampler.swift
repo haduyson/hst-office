@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-HST-Proprietary
+// Copyright (C) 2026 HASON TECH
 // Samples the on-screen windows of the HST Office process(es) at 20 Hz for start-up timing.
 //   startup-probe-sampler <seconds> > samples.csv
 // Columns: epoch_ms, windows ("WxH" of every on-screen normal-layer window owned by a soffice/HST Office

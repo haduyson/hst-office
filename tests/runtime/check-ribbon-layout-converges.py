@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Checks that the ribbon's layout settles: after a resize and a tab switch, the next idle lays the ribbon out a few
 times at most, not without end (a menu button's look and its group's look setting its style differently asked for a
 new layout from every layout: the app used a CPU core while idle and the layout dump caught passes half done).

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ Hoàn tất và trộn (its ▾ items preselect the action) and Xem trước kết quả ▸ Kiểm tra lỗi.
 Before merging, every "Hỏi" rule used in the document asks its question once; the answer goes to every copy."""
 from . import mail_merge_check as check

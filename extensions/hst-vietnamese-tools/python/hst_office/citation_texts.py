@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Strings of the citation commands and dialogs, in the UI language (owner decision 13/11/2026: Vietnamese or
 English, unlike the other HST commands that are Vietnamese in every UI language).
 

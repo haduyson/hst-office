@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows probe: why the new-version pop-up waits. Runs like update-popup-drive-windows.py (same image, manifests,
 LOCALAPPDATA in <work>) but only watches: every 5 s it records the desktop's frames (title, controller or none,
 action lock: what welcome_job.loading() reads) and whether a window titled "Cập nhật HST Office" is shown, until the

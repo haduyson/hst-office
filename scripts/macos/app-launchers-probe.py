@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helper of scripts/macos/app-launchers-probe.sh.
 
   app-launchers-probe.py seed <profile>                  (system python, stdlib) the default profile of the probe:
