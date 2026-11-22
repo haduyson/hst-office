@@ -68,13 +68,11 @@ class _AskLater(unohelper.Base, XCallback):
         self.ctx, self.frame = ctx, frame
 
     def notify(self, data):
+        # Through DispatchHelper, which parses the URL: a URL struct with only Complete set has no Protocol, the
+        # extension's dispatch provider refused it, and in 1.0.3 the double-click was swallowed with no question.
         try:
-            import uno
-            url = uno.createUnoStruct("com.sun.star.util.URL")
-            url.Complete = COMMAND
-            dispatcher = self.frame.queryDispatch(url, "", 0)
-            if dispatcher is not None:
-                dispatcher.dispatch(url, ())
+            helper = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.ctx)
+            helper.executeDispatch(self.frame, COMMAND, "", 0, ())
         except Exception:  # noqa: BLE001
             diag_log.exception("formula_click")
 

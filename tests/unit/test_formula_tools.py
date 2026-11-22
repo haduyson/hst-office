@@ -251,6 +251,16 @@ class MathTypeDoubleClickTest(unittest.TestCase):
         two = types.SimpleNamespace(supportsService=lambda n: False, getCount=lambda: 2, getByIndex=lambda i: shape)
         self.assertFalse(self.click.opens_in_mathtype(self.controller(two), lambda c: True))
 
+    def test_question_dispatched_with_parsed_url(self):
+        # 1.0.3 built the URL struct by hand (Complete only): the extension's provider wants Protocol and Path, so the
+        # question never came and the double-click did nothing. DispatchHelper parses the command URL.
+        dispatched = []
+        helper = types.SimpleNamespace(executeDispatch=lambda *a: dispatched.append(a))
+        manager = types.SimpleNamespace(createInstanceWithContext=lambda name, ctx: helper)
+        frame = object()
+        self.click._AskLater(types.SimpleNamespace(ServiceManager=manager), frame).notify(None)
+        self.assertEqual([(frame, "org.hst.office.vi:AskConvertFormula", "", 0, ())], dispatched)
+
 
 class FormulaSaveCheckTest(unittest.TestCase):
     def test_binary_formats(self):
