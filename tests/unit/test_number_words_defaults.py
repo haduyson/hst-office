@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Defaults of number and money reading: file > user > program for the dialog, file > program for DOCSO()/DOCTIEN()
 with an argument left out, the shortest formula the dialog may write, the user default (profile, options page)."""
 import os

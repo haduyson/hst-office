@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Job on OnLoad: a mail-merge document is connected to its recipient list again when it opens
 (mail_merge_word_link.connect_on_load). Leaves at once for anything but a Writer document that is a Word package
 with w:mailMerge or carries HST mail-merge settings, so opening other files costs one or two property reads.

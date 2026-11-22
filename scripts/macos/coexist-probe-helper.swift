@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-HST-Proprietary
+// Copyright (C) 2026 HASON TECH
 // LaunchServices and window facts for scripts/macos/coexist-probe.sh.
 //   coexist-probe-helper defaults <ext>... [-- <url-scheme>...]   one "<ext|scheme> <bundle id> <app path>" line each
 //   coexist-probe-helper windows <pid>                           number of on-screen normal windows of the process

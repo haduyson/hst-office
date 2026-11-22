@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the Windows MSI's registration of the HST PDF preview handler and thumbnail provider.
 
     check-msi-pdf-preview.py --msi FILE

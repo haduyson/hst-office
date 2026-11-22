@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """windows_modal_safe: a wait on a dialog is reported as such, never as a product hang.
 
 The 1.0.2 smoke on HST3 reported an embedded-Calc .docx as hanging: the load ran on the UNO bridge thread while the

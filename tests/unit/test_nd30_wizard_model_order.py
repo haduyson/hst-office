@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ND30 wizard dialog model, without an office: no list control lies over the fields. The "Loại văn bản" list used to
 be a list box of the dialog shown over the fields below the type. VCL does not clip sibling controls against each
 other: inserted after the fields it lay under them (hover, wheel and clicks went to the fields on macOS and Linux), and

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """More C++ edits of the Writer ribbon UX rework, in the form of ribbon_ux_writer_cxx.EDITS:
 - .uno:HstDifferentFirstPage and .uno:HstDifferentOddEven: toggles of the current page style's shared first page
   and shared left/right header and footer (Đầu trang và chân trang ▸ Tùy chọn), one undo step each (ChgPageDesc);

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: a contextual ribbon tab stays the current tab after a command on its object (bug #9: the ribbon went
 back to "Trang đầu"), for a picture, a table and a shape in Writer, Sheets, Slides and Draw and a chart in Sheets
 (Sheets' table: a database range with a table style, as Chèn › Bảng makes; its pivot table is checked too).

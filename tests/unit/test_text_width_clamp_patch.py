@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ScTable::InvalidateTextWidth stops at the last allocated column (hst-calc-text-width-clamp.patch).
 
 Columns are allocated lazily; a range up to MaxCol() read past them and crashed (reached through

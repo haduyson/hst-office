@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Deploy a commit of the build infrastructure for the local build queue (scripts/build-queue.sh).
 #   sudo scripts/linux/build-infra-deploy.sh <commit|branch>   checkout + atomic switch + dispatcher restart + prune
 #   sudo scripts/linux/build-infra-deploy.sh --prune           only remove versions no process uses any more

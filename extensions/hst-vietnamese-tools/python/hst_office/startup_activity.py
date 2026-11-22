@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Has the user started working since the start-up questions were scheduled?
 
 The questions wait for the end of every document load (welcome_job.run_later). On a busy machine that can be long

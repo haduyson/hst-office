@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: is an office's UI thread answering? For the evidence of a held GUI check: a prompt (answering, a
 dialog on screen) is told apart from a hang (the window does not answer WM_NULL), and a hang gets a minidump.
 

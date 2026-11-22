@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """AT-SPI side of check-backstage-print-margins.py (system python3 with pyatspi; the office's own python has UNO).
 
 The File panel is a popup of its own that UITest does not reach, so its Print page is read through AT-SPI (gtk3 with

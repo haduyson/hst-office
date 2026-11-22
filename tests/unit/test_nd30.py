@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ND30 layout/validation tests. Expectations come from docs/VIETNAMESE_OFFICE_SPEC.md via nd30-cases.json."""
 import json
 import os

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The File page covers the ribbon body and the document left of the banner (hst-ribbon-adaptive-backstage.patch)."""
 import unittest
 

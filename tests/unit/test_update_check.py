@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Update check: versions, channels, test override, throttle, skip (manifest and URL rules: test_update_manifest_rules.py)."""
 import base64
 import http.server

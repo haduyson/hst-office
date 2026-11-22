@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS swap safety: every check of the staged copy runs before its quarantine flag is cleared, the administrator step
 runs only an unchanged copy of the script, and a failure that reopens nothing still tells the user."""
 import hashlib

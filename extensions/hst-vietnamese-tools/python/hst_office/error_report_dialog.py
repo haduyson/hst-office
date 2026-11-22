@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trợ giúp ▸ Báo lỗi cho HASON TECH…: the error report dialog (also opened by the crash prompt with kind=crash).
 
 Nothing is sent until the user presses "Gửi". The summary (version, OS, app) is always part of the report and shown

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Line-tagged formats besides RIS: PubMed/MEDLINE ``.nbib`` ("PMID- 123", "FAU - Smith, John") and EndNote /
 refer ``.enw`` ("%0 Journal Article", "%A Smith, John"). Pure Python (no uno)."""
 import re

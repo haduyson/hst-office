@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """W12/W13/M8: same synthetic PDF through viewer, print, thumbnail and Draw."""
 from pathlib import Path
 import subprocess

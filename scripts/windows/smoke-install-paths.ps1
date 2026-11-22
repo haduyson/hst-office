@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Windows smoke: HST Office installs next to LibreOffice, and replaces the betas installed under LibreOffice's code.
 #   smoke-install-paths.ps1 -Scenario <name> -HstMsi <msi> -OtherMsi <msi> -Out <dir>
 #   libreoffice-first:  OtherMsi is the official LibreOffice MSI, installed first, then HST Office. Both stay

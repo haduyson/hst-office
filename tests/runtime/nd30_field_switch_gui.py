@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of check-nd30-field-switch.py: keys posted inside VCL and timed to idle, the wizard of the HST menu inside the
 office, the X focus of its window and closing test documents."""
 import os

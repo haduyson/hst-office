@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Copies and the office forms that are not ordinary documents (pure logic): forms 3.1, 3.2, the envelope and the ĐẾN stamp."""
 from .nd30_blocks import para, run
 from .nd30_heading import agency_cell, date_para, esign_line, value_of

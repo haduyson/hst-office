@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO component entry point registered in META-INF/manifest.xml (application/vnd.sun.star.uno-component;type=Python).
 
 The office loads this file the first time it needs any HST service, and the first one is the crash job at OnStartApp,

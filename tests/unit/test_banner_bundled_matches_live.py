@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The installed default banners equal the set published on system.hasontech.vn.
 
 The fixture is the signed manifest served at https://system.hasontech.vn/hst-office/banners.json

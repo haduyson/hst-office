@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-windows-own-progids.patch: HST Office's own ProgIDs and UNO install-path key next to LibreOffice."""
 from pathlib import Path
 import re

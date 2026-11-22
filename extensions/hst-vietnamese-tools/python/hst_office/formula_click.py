@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: double-clicking a MathType equation asks to convert it (AskConvertFormula) instead of trying to
 start MathType, which the office cannot do. Every other double-click goes on as usual.
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of check-close-crash-handler-windows.py: one office per run on its own profile (the owner's save settings),
 driven over UNO from the office's own python.exe until the UNO bridge is dropped (a live bridge keeps the office from
 ending when its last window closes). Windows are only touched through their own HWNDs (WM_CLOSE, posted keys) after

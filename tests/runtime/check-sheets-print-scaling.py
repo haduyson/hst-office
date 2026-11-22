@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Print scaling of HST Sheets end to end through UNO (hst-sheets-print-scaling.patch), on Linux, Windows or macOS.
 
 Usage: <python with uno> tests/runtime/check-sheets-print-scaling.py --soffice PATH/TO/soffice [--out DIR]

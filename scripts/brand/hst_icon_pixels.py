@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pixel model of a snapped HST glyph at its target size, for the 16 px weight rule.
 
 A pixel belongs to a stroke when its centre lies within half the pen of the centre line, to a

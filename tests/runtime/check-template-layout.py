@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Measure every Writer document type on multi-page content, from the .ott templates and from the wizard's renderer.
 
 Usage (as root it runs the office as the build user; hold the shared build lock around it):

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check on a real GTK GUI that the native menu bar, now built only when shown, is complete whenever it is shown.
 
 Usage: python3 tests/runtime/check-gtk-menubar-lazy-build.py [--instdir DIR] [--display :72] [--file X.xlsx]

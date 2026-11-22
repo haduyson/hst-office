@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """New widgets of the Writer ribbon UX rework (ribbon_ux_writer_engine.py): menu buttons with their image and
 menu, and text labels beside toolboxes."""
 import xml.etree.ElementTree as ET

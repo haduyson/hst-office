@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the Windows MSI upgrade rules. No argument: the patch series (Quality CI); --msi FILE: a built MSI
 (msiinfo, or msilib on Windows Python <= 3.12). The UpgradeCode is HST's permanent code and the only one with
 NEWPRODUCTS; a row on another code only removes, stays below 3.0 (LibreOffice for Windows starts at 3.3) and

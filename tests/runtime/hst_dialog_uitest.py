@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Drive HST Office dialogs through the UITest service: real dialogs on the headless svp plugin, addressed by
 widget id. check-dialogs-writer.py and its siblings assert tab order, key controls and that an edit
 reaches the document. The svp plugin is used because UITest only sees VCL widgets, not native gtk3,

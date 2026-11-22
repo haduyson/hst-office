@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fail when the ribbon KeyTips, the tab access keys or the shortcuts drift from the familiar office suite.
 
 Usage: python3 scripts/check-keytips-parity.py [--tree PATCHED_TREE]

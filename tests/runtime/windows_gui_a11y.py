@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The accessibility tree of the office over UNO, for the Windows GUI checks (run with the office's python.exe)."""
 
 

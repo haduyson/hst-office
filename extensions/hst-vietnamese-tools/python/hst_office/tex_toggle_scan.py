@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức in HST Writer: where to look and what is there. The scope is the selection, or the whole
 document (body, tables cell by cell, text frames); each run of paragraphs is read from its text portions, so a field,
 footnote or object counts as one character that no span may hold, and each LaTeX span gets a text cursor over it."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Word-compatible mail merge on an installed HST Office: a Word-made letter (.docx with w:mailMerge naming an Excel
 list in a Windows folder that does not exist here, MERGEFIELD switches, IF fields) next to its list.
 

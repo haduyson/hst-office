@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, Word documents: which recipient list a Word mail-merge document names, and where that file is now.
 Pure Python (reads the .docx package itself).
 

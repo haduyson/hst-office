@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Quick access toolbar of the HST ribbon over UNO, shared by the Linux and Windows checks: the default and test
 command lists, the commands a module shows, and replacing them (from the caller's thread, as a UNO client does)."""
 

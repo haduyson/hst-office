@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-HST-Proprietary
+// Copyright (C) 2026 HASON TECH
 // Samples window state of one process at ~50 Hz for macOS tab-switch diagnosis.
 //   tab-probe-sampler <pid> <seconds> > samples.csv
 // Columns: t_ms, frontmost_pid, n_onscreen, n_fullscreen, windows

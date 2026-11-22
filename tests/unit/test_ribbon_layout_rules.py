@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Uniform layout of the ribbon groups (scripts/patches/ribbon_layout_rules.py, generate-ribbon-ux-uniform.py,
 check-ribbon-layout.py; hst-ribbon-ux-uniform-layout.patch and hst-ribbon-ux-few-command-groups.patch).
 

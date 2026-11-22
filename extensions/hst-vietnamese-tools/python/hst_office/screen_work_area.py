@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The part of the screen a dialog may use, in device pixels like a peer's getPosSize().
 
 com.sun.star.awt.Toolkit.getWorkArea() returns the whole display (VCLXToolkit::getWorkArea is

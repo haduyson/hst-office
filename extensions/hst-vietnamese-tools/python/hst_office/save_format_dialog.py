@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The warning before a Sheets document whose cells use HST functions is saved as .xlsx/.xls (save_format_check.py):
 "Chuyển thành giá trị khi lưu" (Enter), "Vẫn lưu", "Hủy" (Esc, or closing the dialog), and "Không hỏi lại"."""
 from . import utilities_texts as T

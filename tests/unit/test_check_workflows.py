@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Workflow contract tests use synthetic YAML mutations, not native-build evidence."""
 from contextlib import redirect_stderr
 import copy

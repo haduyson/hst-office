@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Checks on the sample document: result formatting, bibliography paragraphs, order, bulk update
 in one Undo step, tracked changes, and what survives .docx/.odt save and reload."""
 import json

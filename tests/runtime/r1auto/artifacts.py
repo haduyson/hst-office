@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Final gate checks actual PNG evidence, not merely a pathname in JSON."""
 from pathlib import Path, PureWindowsPath
 

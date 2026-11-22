@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared UI/PKI helpers for USB token setup; test credentials stay in the harness."""
 import importlib.util
 import os

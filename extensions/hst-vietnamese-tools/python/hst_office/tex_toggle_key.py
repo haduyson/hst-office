@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức on Alt+\\ in HST Writer, the key MathType's TeX toggle uses in Word.
 
 The office's shortcut table cannot hold this key: it has no key code for the backslash (only for keys such as

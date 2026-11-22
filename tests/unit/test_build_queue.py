@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Local build queue: submit/dedupe/validation, cancel/wait, invalidate, retention and infrastructure-failure
 requeue (scripts/build-queue.py)."""
 import io

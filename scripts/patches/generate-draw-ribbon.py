@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate the HST ribbon of HST Draw (patches/libreoffice/hst-ribbon-draw.patch).
 
 Usage: scripts/patches/generate-draw-ribbon.py --tree DIR [--out PATCH] [--check]

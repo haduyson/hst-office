@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Turn lookup answers into CSL-JSON items: doi.org (CSL-JSON), Crossref REST, NCBI E-utilities esummary,
 arXiv Atom and Open Library. Abstracts are not kept (they may be under copyright); markup in titles is removed.
 Pure Python (no uno, no network)."""

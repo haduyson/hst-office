@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Every way a user can show, print, sign or re-export a PDF in HST Office, each ending in a PNG
 of one page at a given resolution, for pdf_watermark_metrics.
 

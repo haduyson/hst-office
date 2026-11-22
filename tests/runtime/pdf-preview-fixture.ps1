@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Test PDF for the HST PDF preview checks (dot-sourced by check-windows-pdf-preview*.ps1).
 # A4 pages; page i (0-based) has a black 100 x 100 pt square at x = 50 + 100 i, 100 pt below the top edge.
 function New-TestPdf([string]$path, [int]$pages) {

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Open a page of the offline user guide (help/ of this extension) in the system browser.
 
 Used by the Help tab buttons org.hst.office.vi:WhereIsCommand ("Lệnh quen thuộc ở đâu?") and

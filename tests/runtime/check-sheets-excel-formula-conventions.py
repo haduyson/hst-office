@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that HST Sheets formulas follow the leading spreadsheet application's conventions (real build).
 
 Usage: python3 tests/runtime/check-sheets-excel-formula-conventions.py [--instdir DIR] [--out DIR]

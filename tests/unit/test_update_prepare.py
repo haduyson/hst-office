@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Worker half of "Cập nhật ngay" against a local HTTP server: signed manifest, download, verification, reuse, abort paths."""
 import base64
 import hashlib

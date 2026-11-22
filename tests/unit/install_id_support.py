@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared fixtures of the install-ID tests: UNO stubs (set before any hst_office import) and a settings double."""
 import os
 import sys

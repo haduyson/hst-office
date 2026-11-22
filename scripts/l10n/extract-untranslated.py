@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Extract untranslated Vietnamese UI strings from the LibreOffice translations tree.
 
 Usage: python3 scripts/l10n/extract-untranslated.py [--tree upstream/libreoffice] [--out build/l10n/todo]

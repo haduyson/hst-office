@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, Word fields: MERGEFIELD switches (\\# \\@ \\* \\b \\f) and IF fields evaluated with Word's rules, against
 the Word-made sample letter (tests/runtime/mail_merge_word_samples.py) and its expected Word output."""
 import datetime

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """XML pieces of the Writer "Gửi thư" (Mailings) tab groups for generate-mail-merge-ribbon.py: notebookbar toolboxes,
 grids and their captions in the indentation and property order of the existing Tabbed notebookbar.ui."""
 from xml.sax.saxutils import escape

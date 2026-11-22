@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Slides animation gallery and .uno:HstApplyAnimation (gtk3, vi_VN).
 
 Usage: python3 tests/runtime/check-slides-animation-gallery.py [--instdir DIR] [--display :71] [--out DIR]

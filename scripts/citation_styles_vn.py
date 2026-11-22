@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese thesis styles: numbered (Học viện Tài chính 2022 pattern) and author–year (ĐH Kinh tế – Luật SDH-TS12,
 ĐH Kinh tế Quốc dân). Rules follow the decision report plans/reports/fable52-261113-1345-vn-citation-and-privacy-decision.md."""
 from citation_styles_common import ALIAS, DOT, VN_PUB, g, m, opts, t, term, v

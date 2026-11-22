@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # End-to-end probe of the macOS "Cập nhật ngay" (CI only; evidence, never a release gate).
 #   update-e2e-probe.sh <installed.dmg> <target.dmg> <scenario> <out-dir>
 # The app of <installed.dmg> is copied to /Applications (as a user drags it), started like a user's with a document,

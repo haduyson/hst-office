@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Chèn lại trích dẫn" by number: read what the user typed just before the cursor and map numbers to sources.
 Pure Python (no uno).
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-citation-fieldmarks.patch: citation fields (UNHANDLED text fieldmarks carrying their code
 as a parameter) keep the code through Undo/Redo, field updates undo the code with the result,
 Backspace/Delete next to such a field selects it instead of unwrapping it, and .odt reload keeps

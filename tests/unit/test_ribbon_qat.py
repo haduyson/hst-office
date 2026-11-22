@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Quick access toolbar of hst-ribbon-adaptive-qat.patch: defaults, the ▾ menu, add/remove from the ribbon, per-app
 storage apart from the placement, overflow inside the tab row, and the row below the ribbon."""
 import os

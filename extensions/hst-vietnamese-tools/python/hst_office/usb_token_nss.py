@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Append NSS SQL module records, preserving existing content and module names.
 
 pkcs11.txt uses blank-line-separated key=value records, not INI or shell syntax.

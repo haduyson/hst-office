@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GUI check: deleting every macro of a Word-made .docm, then Ctrl+S, asks and saves the text (never a silent no-op).
 
 Usage: python3 tests/runtime/check-vba-remove-all-macros.py [--instdir upstream/libreoffice/instdir]

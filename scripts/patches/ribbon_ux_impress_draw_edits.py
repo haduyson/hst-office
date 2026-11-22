@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Slides and Draw edits of the ribbon rework (generate-ribbon-ux-impress-draw.py)."""
 import ribbon_ux_lib as L
 from ribbon_ux_impress_draw_data import ND30_LABEL, ND30_TOOLTIP, SELECT_MENU, SHAPE_MENU

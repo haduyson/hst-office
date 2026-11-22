@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Markdown table of scripts/perf/large-file-open.py results: python large-file-open-summary.py <out-dir>.
 
 One row per file, one column per label: "load / ready s, peak MB" (median over runs), "TIMEOUT@s" when the open did

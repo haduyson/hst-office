@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Open a contextual ribbon tab of an HST Office window on Windows without real input (check-windows-style-galleries.py).
 
 LibreOffice gives no UI Automation tree there and posted keytips type into the document, so the tab is found on the

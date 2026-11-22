@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Drive HST Office on macOS over UNO and time document-tab actions (run with the bundled Python).
 
   tab-probe.py <office-pid> <out-dir> <mode: windowed|fullscreen>

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Host probes of the admission controller (memory, swap, disk, slot locks) and the disk-refusal hint
 that names the largest /data/hst-agents directories. Patched in tests.
 """

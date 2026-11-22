@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Windows harness input gate: real keys reach only a verified HST Office window. A key meant for an office
 dialog must never land on the desktop, the taskbar or a system dialog (Alt+F4 then Enter there powers the PC off),
 and windows are closed with WM_CLOSE to their own HWND, never with keys."""

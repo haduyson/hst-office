@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, Word documents in the office.
 
 - Opening (job on OnLoad, mail_merge_word_job): a Word mail-merge document (.docx with w:mailMerge) or an HST one

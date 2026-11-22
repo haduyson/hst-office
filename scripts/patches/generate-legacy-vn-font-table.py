@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate the TCVN3/VNI decoding header used by the WMF import patch (equation previews).
 
 Usage: python3 scripts/patches/generate-legacy-vn-font-table.py            # print the header

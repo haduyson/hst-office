@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Overwrite upstream application/document icons in a LibreOffice source tree with HST ones.
 
   python3 scripts/brand/apply-icon-overrides.py --tree <libreoffice-src> [--check]

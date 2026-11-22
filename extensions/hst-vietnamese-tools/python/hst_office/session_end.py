@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Did the operating system end the previous session (shut down, restart, log off), rather than a crash, a kill or a
 power cut? Pure functions over what the office left behind (hst-session-end-note.patch).
 

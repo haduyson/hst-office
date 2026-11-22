@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Margins box of the File panel's Print page (hst-backstage-print.patch): the presets of Page Setup, one undo
 step, the preview of the waiting job shown again. Read from the patch."""
 import re

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Start-up timing of the HST Office dmg on a GitHub macOS runner, the app copied to /Applications as a user does.
 #   startup-timing-macos.sh <HSTOffice_*.dmg> <out-dir> [variants]
 # First the Gatekeeper cost of a downloaded copy: the dmg gets the quarantine flag a browser sets, the app is copied

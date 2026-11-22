@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Package structure and resource validation helpers."""
 import hashlib
 import json
@@ -160,7 +161,7 @@ def check_content(zf, names, errors):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:
                 errors.append("%s exceeds %d lines" % (name, MAX_LINES))
-            if "SPDX-License-Identifier: AGPL-3.0-only" not in text[:300]:
+            if "SPDX-License-Identifier: LicenseRef-HST-Proprietary" not in text[:300]:
                 errors.append("%s lacks the SPDX header" % name)
         if name.endswith(".json"):
             json.loads(data.decode("utf-8"))

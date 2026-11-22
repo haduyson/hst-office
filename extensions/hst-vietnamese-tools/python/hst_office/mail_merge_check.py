@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ Kiểm tra lỗi: simulate the merge on the effective rows (the staging copy: checked recipients in order,
 with computed columns) and list what would come out wrong. Pure Python.
 

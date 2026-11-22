@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Everything the CLI, the dispatcher and the tests use from the build queue, in one namespace.
 """
 from .queue_ops import *  # noqa: F401,F403

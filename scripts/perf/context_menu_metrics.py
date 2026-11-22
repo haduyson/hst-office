@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure analysis helpers for context-menu latency runs (no I/O side effects).
 
 Run files are JSON documents written by run-context-menu.py:

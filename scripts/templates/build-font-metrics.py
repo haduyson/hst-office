@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Write data/vietnamese/font-metrics-times.json: glyph advances that lay out rule lengths without an office runtime.
 
 Liberation Serif is metric-compatible with Times New Roman for this repertoire (same advance widths by design); the

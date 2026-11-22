@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Per-OS default-apps actions and the "already registered" test (no uno; command building is pure and tested).
 
 make_default(system) -> (ok, kind): kind "" (done) or "settings" (Windows: Settings opened, the user picks there).

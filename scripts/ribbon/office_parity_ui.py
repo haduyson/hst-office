@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Reading side of the offline ribbon parity check (check-office-parity.py): the vi catalogue and the visible items,
 tab menus and group captions of a notebookbar.ui."""
 import gettext

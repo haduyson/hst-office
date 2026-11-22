@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ProtocolHandler of the Trợ lý AI: org.hst.office.ai:<Command>.
 
 Commands: FormulaWrite, FormulaExplain (HST Sheets), Writing (every app with text), Help (every app) and Options

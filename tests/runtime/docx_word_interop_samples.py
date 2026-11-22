@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Sample documents and checks for check-docx-word-interop.py (split runs, East Asian font export)."""
 import os
 import re

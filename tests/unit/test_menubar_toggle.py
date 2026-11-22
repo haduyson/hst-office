@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The classic menu bar toggle (hst-menubar-toggle.patch), read from the patch and the extension.
 
 Owner decisions of 2026-11-13: the menu bar stays hidden under the ribbon by default; "Thanh trình đơn" turns it on

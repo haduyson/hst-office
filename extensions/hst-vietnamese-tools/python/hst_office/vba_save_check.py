@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """After saving as an Excel or Word file, tell the user what of the VBA UserForms was not written.
 
 The export writes UserForms with labels, text boxes, buttons, check boxes, option buttons, combo and

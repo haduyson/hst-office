@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """LaTeX in BibTeX values: decode to Unicode on import ({\\'e} -> é, \\~{\\^a} -> ẫ, \\dj -> đ, -- -> –) and escape
 special characters on export (& % $ # _ { } ~ ^ \\). Unicode letters are written as they are on export (biber and
 BibTeX with inputenc read UTF-8). Pure Python (no uno)."""

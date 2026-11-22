@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Before/after screenshots of the HST coat on ten pilot dialogs, on Linux gtk3.
 
 Usage: coat-dialog-shots.py --instdir DIR --work DIR --out DIR [--display :143] [--port N] [--look after-light-100 ...]

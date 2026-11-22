@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """C++ and dialog edits of the Writer ribbon UX rework (generate-ribbon-ux-writer.py, written into
 hst-ribbon-ux-writer-commands.patch):
 - "Viền trang": .uno:BorderDialog takes an optional Page argument (FN_PARAM_1) naming the first tab of the

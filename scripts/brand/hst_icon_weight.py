@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Heavier 16 px ink for the colourful HST style: 1 px pens become 2 px where the glyph has room.
 
 At 16 px the snapped glyphs draw a 1 px pen and look lighter than the upstream sets (1.5-2 px). A

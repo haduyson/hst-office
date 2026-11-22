@@ -1,7 +1,7 @@
 # License & trademark audit — HST Office trên LibreOffice
 
 > Trạng thái: **bằng chứng kỹ thuật đã thu thập; CHƯA được người có thẩm quyền pháp lý duyệt.** Không phải ý kiến pháp lý.
-> Ngày: 2026-10-29. Nguồn: LibreOffice 26.8.1.1 — [lock](../upstream/libreoffice-lock.json). Audit ONLYOFFICE trước đó: git `577f620` và nhánh `archive/onlyoffice-plugin-first` (không còn áp dụng, [ADR 0002](ADR/0002-libreoffice-standalone.md)).
+> Ngày: 2026-10-29; cập nhật 2026-11-22 (mã HST chuyển sang giấy phép độc quyền, §2.1). Nguồn: LibreOffice 26.8.1.1 — [lock](../upstream/libreoffice-lock.json). Audit ONLYOFFICE trước đó: git `577f620` và nhánh `archive/onlyoffice-plugin-first` (không còn áp dụng, [ADR 0002](ADR/0002-libreoffice-standalone.md)).
 
 ## 1. Văn bản đã lưu nguyên văn
 
@@ -22,11 +22,36 @@ Hash từng file: `LICENSES/upstream/libreoffice/provenance.json`. Tarball ngu�
 | Thành phần | Giấy phép | Nghĩa vụ |
 |---|---|---|
 | File LibreOffice HST sửa (patch trong `patches/libreoffice/`) | Giữ nguyên giấy phép của file (MPL-2.0, hoặc dual MPL/LGPL theo header) | Công bố source file đã sửa (repo public + tarball source tương ứng) |
-| Mã HST mới, file riêng (extension, script build, generator) | AGPL-3.0 (quyết định chủ dự án) | MPL-2.0 §3.3 cho phép kết hợp với GNU licenses khi file không đánh dấu "Incompatible With Secondary Licenses" — **cần legal xác nhận** (LEG-06) |
+| Mã HST mới, file riêng (extension, script build, generator, kiểm thử, file mới HST tự viết trong patch) | Từ 1.0.4: độc quyền HASON TECH, SPDX `LicenseRef-HST-Proprietary`, [Điều khoản sử dụng phần mềm HST Office](../LICENSE) (quyết định chủ dự án 2026-11-22). Bản 1.0.0–1.0.3: AGPL-3.0 ([LICENSES/historical](../LICENSES/historical/README.md)) | MPL-2.0 là giấy phép theo từng file: file riêng không chứa mã MPL được phép mang giấy phép khác trong cùng "Larger Work" (§3.3); thông báo nguồn §3.2 chỉ áp dụng cho phần MPL/LGPL/GPL — **cần luật sư xác nhận** (LEG-06, §2.1) |
 | Mẫu văn bản (`templates/`) | CC BY 4.0 | Ghi công |
 | Asset thương hiệu HST | Không cấp phép (thương hiệu HASON TECH) | — |
-| Từ điển `vi` | GPLv2 (tác giả gốc) | Kèm license, source = file `.dic/.aff` |
+| Từ điển `vi` | GPLv2 (tác giả gốc) | Kèm license, source = file `.dic/.aff`; nguồn tương ứng theo yêu cầu (lienhe@hasontech.vn) |
 | Thư viện bên ngoài do LibreOffice bundle | theo `license.xml` | Giữ `license.xml`/`NOTICE` trong gói cài |
+
+### 2.1 Chuyển mã HST sang giấy phép độc quyền (2026-11-22)
+
+> **BẢN NHÁP – cần luật sư duyệt.** Điều khoản sử dụng phần mềm HST Office (`LICENSE`, mục "HST Office" của tài liệu giấy phép trong app, `copyright` của gói `.deb`) do kỹ thuật soạn theo yêu cầu của chủ dự án, chưa được luật sư xem. Không phải ý kiến pháp lý. Dấu nháp chỉ ghi ở tài liệu nội bộ này, không ghi trong tệp gửi người dùng.
+
+Quyết định chủ dự án (22/11/2026 13:30): bỏ AGPL-3.0 cho mã do HST viết, chuyển sang giấy phép độc quyền, không công khai mã nguồn HST Office từ bản 1.0.4. Toàn bộ commit của kho là của chủ dự án (haduyson / HST Office / HASON TECH), không có người đóng góp bên ngoài, nên HASON TECH là chủ thể bản quyền duy nhất của mã HST.
+
+| Loại tệp | Giấy phép | Cách nhận biết |
+|---|---|---|
+| Tệp HST tự viết (script, extension, kiểm thử, workflow, cấu hình, generator) | `LicenseRef-HST-Proprietary` + `Copyright (C) 2026 HASON TECH` | Trước đây mang định danh SPDX `AGPL-3.0-only` |
+| Tệp mới HST tự viết trong `patches/libreoffice/` | `LicenseRef-HST-Proprietary` (đã có từ trước) | Header trong hunk `--- /dev/null` |
+| Tệp LibreOffice HST sửa (hunk `--- a/<tệp gốc>`) | Giữ giấy phép của tệp (MPL-2.0 hoặc kép MPL/LGPL theo header) | Không đổi header (MPL-2.0 §3.4) |
+| Tệp mới trong patch sao chép hay dẫn xuất từ mã LibreOffice (header MPL) | Giữ MPL-2.0 | Header MPL trong hunk `--- /dev/null` |
+| Từ điển `vi`, thư viện bên thứ ba LibreOffice bundle | Giữ GPLv2 / giấy phép riêng, kèm nghĩa vụ cung cấp nguồn | `LICENSES/upstream/`, `license.xml` |
+| Mẫu văn bản, artwork icon HST | Giữ CC BY 4.0 (không thuộc phạm vi quyết định) | `templates/`, `icon-themes-src/hst/LICENSE.md` |
+| Ghi chú phát hành đã phát hành (`docs/releases/v1.0.0*`…`v1.0.3.md`) | Giữ nguyên câu "mã HST theo AGPL-3.0" (đúng với các bản đó) | — |
+
+Các bản 1.0.0–1.0.3 đã phát hành theo AGPL-3.0; người đã nhận các bản đó giữ quyền theo AGPL-3.0 với chính các bản đó và mã nguồn tương ứng. Văn bản lưu tại `LICENSES/historical/AGPL-3.0.txt`.
+
+Việc cần luật sư hoặc chủ dự án quyết:
+
+1. Duyệt Điều khoản sử dụng (VI/EN): phạm vi quyền dùng miễn phí (kể cả thương mại, sao chép bộ cài nguyên vẹn trong nội bộ tổ chức), cấm dịch ngược (đối chiếu ngoại lệ pháp luật cho phép), không bảo hành và giới hạn trách nhiệm theo luật Việt Nam, luật áp dụng, bản tiếng Việt ưu tiên.
+2. Xác nhận việc phân phối mã độc quyền (file riêng, gồm file mới trong patch biên dịch vào thư viện LibreOffice) cùng các file MPL-2.0 trong một bản cài (MPL-2.0 §3.3), và việc liên kết với thành phần LGPL/GPL trong gói (LGPL cho phép liên kết động; cần xác nhận không có thành phần GPL nào bị liên kết với mã độc quyền).
+3. Có hiện Điều khoản sử dụng trong bộ cài hay không: MSI hiện đặt `HIDELICENSEDIALOG 1` (không có trang EULA), `.dmg` không có SLA; Điều khoản nằm trong tài liệu giấy phép trong app và tệp `LICENSE` ở thư mục cài.
+4. Kho GitHub công khai: lịch sử git vẫn chứa mã AGPL cũ (không thu hồi được); muốn không công khai mã mới thì phải chuyển kho sang riêng tư trước khi đẩy mã 1.0.4. Các liên kết tới kho (`Source` của icon pack CC BY, cập nhật qua release GitHub) cần xem lại khi chuyển.
 
 ## 3. Thương hiệu
 
@@ -39,7 +64,7 @@ Hash từng file: `LICENSES/upstream/libreoffice/provenance.json`. Tarball ngu�
 | Nghĩa vụ | Căn cứ | Cách HST đáp ứng |
 |---|---|---|
 | Văn bản giấy phép MPL-2.0 đi kèm bản phân phối | MPL-2.0 §3.1/§3.2 | `license.html`/`LICENSE` trong thư mục cài (Trợ giúp → Thông tin giấy phép) |
-| Báo người nhận bản thực thi cách lấy mã nguồn | MPL-2.0 §3.2(a) | Mục "HST Office" ở đầu tài liệu giấy phép (hộp thoại Trợ giúp → Thông tin giấy phép và `LICENSE.html`/`LICENSE`), song ngữ Việt–Anh: cách nhận bản sao mã nguồn tương ứng qua liên hệ HASON TECH (lienhe@hasontech.vn). Không có URL kho mã trong sản phẩm (kho có thể đổi chỗ); About chỉ có câu ngắn "Phần mềm nguồn mở — xem Trợ giúp → Thông tin giấy phép." |
+| Báo người nhận bản thực thi cách lấy mã nguồn | MPL-2.0 §3.2(a) | Mục "HST Office" ở đầu tài liệu giấy phép (hộp thoại Trợ giúp → Thông tin giấy phép và `LICENSE.html`/`LICENSE`), song ngữ Việt–Anh: HST Office là phần mềm độc quyền dùng miễn phí theo Điều khoản sử dụng (toàn văn ngay sau đó), cách nhận bản sao mã nguồn tương ứng **của các thành phần MPL, LGPL, GPL** qua liên hệ HASON TECH (lienhe@hasontech.vn); không áp dụng cho mã HST. Không có URL kho mã trong sản phẩm; About chỉ có câu ngắn "Phần mềm độc quyền của HASON TECH, có sử dụng phần mềm nguồn mở — xem Trợ giúp → Thông tin giấy phép." |
 | Không xóa/sửa thông báo giấy phép, bản quyền trong file nguồn | MPL-2.0 §3.4 | Patch không đụng header; repo công bố file đã sửa |
 | Giấy phép + thông báo của thư viện bên thứ ba (LGPL, BSD, MIT, Apache NOTICE…) | Từng giấy phép trong `license.xml` | Giữ nguyên danh sách thông báo bên thứ ba trong tệp giấy phép |
 | Từ điển `vi` GPLv2: kèm giấy phép, cung cấp nguồn | GPLv2 §1, §3 | `LICENSES-vi.txt` trong extension từ điển (bản thân `.dic/.aff` là nguồn) |
@@ -50,7 +75,7 @@ Trong các văn bản trên, chữ "LibreOffice"/"The Document Foundation" xuấ
 
 | Vị trí | Hiện trạng 26.8.1.1 | Xử lý |
 |---|---|---|
-| About: "%PRODUCTNAME có nguồn gốc từ LibreOffice…", dòng "Bản quyền © … cộng tác viên LibreOffice", nút Credits, "dựa trên LibreOffice 26.8.1.1" cạnh số phiên bản | Đang hiện | **Đã xử lý** (`hst-about.patch`): gỡ cả 3 dòng/nút, không hiện EXTRA_BUILDID và liên kết build id; thay bằng một câu "Phần mềm nguồn mở — xem Trợ giúp → Thông tin giấy phép." (không URL; nút Release Notes cũng ẩn) + khối liên hệ HASON TECH. "Sao chép thông tin phiên bản" không còn dòng `Engine:` (`hst-version-everywhere.patch`); phiên bản lõi chỉ đi kèm báo cáo lỗi, ghi rõ là lõi. Tuỳ chọn `--with-extra-buildid` đã gỡ khỏi `build-config/*.conf` (cây Linux hiện tại giữ giá trị cũ trong `config_buildid.h` đến lần `--configure` sạch kế tiếp; mã không còn đọc nó) |
+| About: "%PRODUCTNAME có nguồn gốc từ LibreOffice…", dòng "Bản quyền © … cộng tác viên LibreOffice", nút Credits, "dựa trên LibreOffice 26.8.1.1" cạnh số phiên bản | Đang hiện | **Đã xử lý** (`hst-about.patch`): gỡ cả 3 dòng/nút, không hiện EXTRA_BUILDID và liên kết build id; thay bằng một câu "Phần mềm độc quyền của HASON TECH, có sử dụng phần mềm nguồn mở — xem Trợ giúp → Thông tin giấy phép." (không URL; nút Release Notes cũng ẩn) + khối liên hệ HASON TECH. "Sao chép thông tin phiên bản" không còn dòng `Engine:` (`hst-version-everywhere.patch`); phiên bản lõi chỉ đi kèm báo cáo lỗi, ghi rõ là lõi. Tuỳ chọn `--with-extra-buildid` đã gỡ khỏi `build-config/*.conf` (cây Linux hiện tại giữ giá trị cũ trong `config_buildid.h` đến lần `--configure` sạch kế tiếp; mã không còn đọc nó) |
 | `soffice --version` | "HST Office 1.0.0 (LibreOffice 26.8.1.1)" | **Đã xử lý** (`hst-version.patch`): "HST Office 1.0.0 <build id>" |
 | Chuỗi giao diện nhắc LibreOffice (Cộng đồng LibreOffice, Quyên góp, Impress Remote, LibreOffice Basic…) | 17 chuỗi vi | **Đã xử lý**: `l10n/vi-overrides.jsonl` (13 dòng) do `scripts/l10n/apply-overrides.py` áp lúc `--build`: About, báo cáo sự cố, "%PRODUCTNAME _Basic" (nhãn tuỳ chọn xuất HTML, không phải định danh macro), thư viện Basic bảo vệ mật khẩu, gói Windows, tooltip Impress Remote (liên kết ẩn), Quyên góp (đã ẩn), "yêu cầu phiên bản engine tối thiểu". **Giữ** (văn bản pháp lý): hộp thoại Giấy phép (`licensedialog`) và tài liệu readme/credits. Chuỗi tiếng Anh (en-US) nhắc LibreOffice chưa đổi vì đổi msgid làm mất bản dịch |
 | Liên kết tới libreoffice.org / documentfoundation.org (get-involved, FAQ, portable, accessibility, volunteer support, chứng nhận) | Hardcode trong mã + officecfg | **Đã xử lý** (`hst-debrand.patch`, `hst-defaults.patch`): menu Trợ giúp/Start Center trỏ hasontech.vn (`utm_medium=menu`); "Gửi phản hồi", "Tham gia đóng góp", Release Notes và Credits **ẩn** (URL cấu hình để trống, `hst-remove-donation.patch`, `hst-about.patch`) — không còn URL GitHub/kho mã nào trong sản phẩm; URL mở nguyên văn không kèm `LOversion/LOlocale`; mẹo trong ngày: bỏ 6 mẹo quyên góp/cộng đồng/chứng nhận/bản portable/tài liệu LibreOffice, liên kết help.libreoffice.org mở trang trợ giúp HST, liên kết wiki/trang TDF khác ẩn; nút "Tải ứng dụng" Impress Remote ẩn. Kho extension trực tuyến không còn được liên kết (chỉ cài từ tệp `.oxt` do người dùng chọn, `hst-extensions.patch`). Chi tiết từng URL: báo cáo `plans/reports/opus-debrand-261029-1945-remove-libreoffice-ui.md` |

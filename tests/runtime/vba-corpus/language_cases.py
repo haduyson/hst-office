@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The VBA language, one small project per case so a compile error stays in its case. Expected results are what VBA gives.
 
 Each case is (name, module-level code, body); the body sets r to "OK" or to what went wrong. Used by make_regression_fixtures.py.

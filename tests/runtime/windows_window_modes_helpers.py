@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of check-windows-document-window-modes.py: the taskbar identity of a window, profile seeding and
 configuration changes over UNO."""
 import ctypes

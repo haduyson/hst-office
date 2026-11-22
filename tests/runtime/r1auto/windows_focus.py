@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Bring HST Office to the front on Windows from the tooling process (tooling Python only).
 
 Windows grants the foreground only to the process that produced the last input; windows_gui_guard.bring_to_front

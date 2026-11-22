@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of HST's local diagnostics on Linux (soffice runs as hstbuild, never root).
 
 Usage: python3 tests/runtime/check-local-diagnostics.py [--instdir upstream/libreoffice/instdir]

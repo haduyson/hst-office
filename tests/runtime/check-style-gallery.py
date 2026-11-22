@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that the Writer style gallery on the Tabbed ribbon shows whole rows only.
 
 Usage: python3 tests/runtime/check-style-gallery.py [--instdir upstream/libreoffice/instdir]

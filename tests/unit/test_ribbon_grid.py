@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Even 3-row grid of ribbon groups at their medium/small size (vcl/inc/HstRibbonGrid.hxx from
 hst-ribbon-adaptive-grid.patch, compiled with a small driver) and the patch's wiring into ToolBox."""
 import os

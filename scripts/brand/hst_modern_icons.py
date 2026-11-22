@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The colourful HST icon style (hst_modern / hst_modern_dark): sources, spec checks, recolouring.
 
 Masters live in icon-themes-src/hst-modern/glyphs/<stage dir>/<glyph>.svg under the classic

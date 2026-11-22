@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Names of the HST Office apps in error reports: a stable key for the server and the product name users read.
 
 The key (payload "app") is what system.hasontech.vn accepts and groups by since 1.0.0-beta.5: writer, calc, impress,

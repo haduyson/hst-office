@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The document-type dropdown of the ND30 wizard with Quick Search: a field to type in and a list that filters live.
 
 The list opens when the user types, presses Down or clicks the arrow. Up/Down or the pointer move the highlight in it, a

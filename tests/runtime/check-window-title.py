@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that window titles show HST Office without the engine version (26.8).
 
 Usage: python3 tests/runtime/check-window-title.py [--instdir upstream/libreoffice/instdir]

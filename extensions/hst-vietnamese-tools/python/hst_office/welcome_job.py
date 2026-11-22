@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Show-once logic for the welcome dialog plus the Jobs.xcu job (event onFirstVisibleTask).
 
 Persistent flag: "welcome_shown" in the profile's startup-choices.json (startup_choices: it survives what erases the

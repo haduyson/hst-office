@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of the Chuyển TeX ⇄ công thức runtime checks (check-tex-toggle.py, check-tex-toggle-key.py): the test
 document, reading it back, running on the office's main thread and quitting there."""
 import json

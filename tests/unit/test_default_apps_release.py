@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Default-apps question per release: the profile outlives an uninstall (macOS keeps ~/Library/Application Support/
 HSTOffice), so "Để sau" given to a pre-release must not snooze the next release. "Đồng ý" or a registration found on
 the machine still end it for good. Without an office."""

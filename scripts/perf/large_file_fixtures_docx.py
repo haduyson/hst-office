@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Word-style .docx fixtures written by hand (no python-docx), for scripts/perf/large_file_fixtures_sized.py.
 
 write_docx_kind(path, kind, units): kind is one of

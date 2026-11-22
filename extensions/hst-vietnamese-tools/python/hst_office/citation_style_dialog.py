@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Kiểu trích dẫn": the document's style, a university preset of it, the options users change most, and a live
 preview with the document's own sources (sample sources when it has none). Only options that differ from the
 style (and preset) are stored, so the document property stays short. Returns new settings or None."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Command org.hst.office.vi:NumberToWords. Sheets: dialog "Đọc số thành chữ" reads the selected cell or column and
 writes the words (plain text, which every spreadsheet keeps) or a DOCSO/DOCTIEN formula into the column to its
 right, one undo step for the whole column. Writer: the selected number is replaced by its words. The dialog opens

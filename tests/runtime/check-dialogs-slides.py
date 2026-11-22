@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Slides dialogs follow PowerPoint's structure: tab names and key controls, on a private Xvfb.
 
 Usage: check-dialogs-slides.py [--instdir DIR] [--work DIR]

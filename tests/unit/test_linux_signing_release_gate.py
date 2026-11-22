@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Once the Linux packaging key is configured, packages must not ship unsigned by accident.
 
 sign-linux-packages.sh --enabled fails when HST_LINUX_GPG_FINGERPRINT is set without the secret; test runs without the

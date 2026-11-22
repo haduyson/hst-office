@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Explicit, original constructions for the remaining ribbon families.
 
 Every registration names an inventory family. No catch-all icon or random

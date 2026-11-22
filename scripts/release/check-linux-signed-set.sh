@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # A release's Linux packages are the GPG-signed set once the packaging key is configured (the public key committed at
 # data/hst/RPM-GPG-KEY-hasontech): .rpm, every .AppImage with its .asc, the Linux SHA256SUMS with its .asc, and the
 # public key, which must be the committed one. Every .rpm must then pass `rpm -K` against the committed key (a scratch

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A crash while the last document window closes must not leave a hung office (owner report, Windows 1.0.1: the
 emergency save dialog with an empty list stayed on screen and only the Task Manager ended the office).
 

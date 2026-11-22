@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư ▸ Khối địa chỉ / Dòng chào: which column holds the title, gender, name, position, unit and address
 (found from the headers, changeable), the Vietnamese options and a live example of the recipient shown. Returns the
 settings to store in the document (mail_merge_store meta "block" or "greeting")."""

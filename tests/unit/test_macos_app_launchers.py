@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS launchers HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF: the bundles make-app-launchers.py builds,
 the stub's contract with their Info.plist, the signing step that drops the launch constraint, and the probe helper."""
 import importlib.util

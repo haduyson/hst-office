@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """scripts/check-msi-no-cli.py: no legacy CLI-UNO bridge file and no GAC assembly in the Windows MSI."""
 import importlib.util
 from pathlib import Path

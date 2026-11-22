@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Local diagnostics: log redaction, rotation and tail, session marker, crash signatures, payload size caps."""
 import json
 import os

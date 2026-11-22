@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: the steps of check-writer-close-with-focused-comment.py in the console user's session. Writer: a content
 control, a comment left in edit mode (its window has the focus), a PDF export with the comments in the margin, then
 XCloseable.close: the office must survive.

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared fixtures of the external updater tests: argument builder and a shell harness with isolated tool stubs.
 
 Not a test module itself (no test_ prefix): test_update_helper*.py, test_update_outcome.py and test_mac_app_location.py

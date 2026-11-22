@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared by the citation runtime checks: a result recorder, and a headless office on a fresh profile reached over
 a UNO pipe (check-citations-fieldmarks.py, check-citations-commands.py)."""
 import json

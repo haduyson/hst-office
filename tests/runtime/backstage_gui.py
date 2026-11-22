@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of check-backstage.py: AT-SPI access to the File panel, a recording dispatch interceptor, test documents."""
 import importlib.util
 import os

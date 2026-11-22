@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pixel-snap a 24-unit HST glyph master for one raster size.
 
 The masters (icon-themes-src/hst/glyphs/) are drawn on a 24-unit grid with a 1.65-unit pen.

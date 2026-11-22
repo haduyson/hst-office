@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Real mouse and keyboard input (SendInput) for the Windows GUI checks, gated by windows_gui_guard: every key is
 sent only after the foreground window has been re-read and found to be an HST Office window, every click only when
 the window under the pointer is one. Pointer moves alone are not gated (hovering cannot act on anything)."""

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # End-to-end "Cập nhật ngay" install step for .rpm and AppImage installs, in an auto-removed container:
 # install the OLD package, detect the install kind with update_linux_install.py (bundled python), build the real
 # helper (update_helper_cmd.build_helper), run it once the "office" pid is gone and check that the NEW package is in

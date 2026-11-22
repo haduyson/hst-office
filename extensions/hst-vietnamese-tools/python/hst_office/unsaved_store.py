@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tài liệu chưa lưu: the documents the user closed without saving, as the office keeps them (pure file logic).
 
 When a document with a recovery copy is closed without saving, the office (framework hstunsavedstore.cxx) moves that

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: is MathType installed, i.e. can this Windows machine open an equation's OLE server?
 
 The double-click question offers "Mở bằng MathType" only then (owner decision 18/11/2026). An OLE server is installed

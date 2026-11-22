@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Group layouts of the Writer ribbon UX rework (generate-ribbon-ux-writer.py), item specs as in
 ribbon_ux_writer_engine.py. A group listed here is rebuilt from its columns (or cells); a group a tab
 (TABS) no longer lists is removed, with whatever its layout did not take elsewhere."""

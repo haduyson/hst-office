@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Public entry point of the citation formatter (the document layer calls only this module and citation_runs).
 
     style = citation_style.load_style("vn-so", options=doc_opts)      # or a preset / the user's own style

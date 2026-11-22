@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Start-up answers survive the loss of the extension's configuration values (startup_choices).
 
 configmgr drops the user values of a bundled extension's schema when a start reads registrymodifications.xcu before the

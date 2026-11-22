@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ZIP entry times of the built extension (scripts/build-extensions.py entry_time).
 
 The office's Python reuses a cached .pyc from the user profile while the source's mtime and size match

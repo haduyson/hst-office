@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Session heartbeat: what was open, and when the office last answered, kept in the session marker while it runs.
 
 A crash report written at the next start used to know only the office's recovery list, which names modified documents

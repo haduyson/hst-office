@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Công thức: before a document with formulas is saved as .doc, .xls or .ppt, say that its formulas are written
 as Equation Editor 3.0 objects, which Word removed in 2018 (they show and print there but cannot be edited), and
 recommend .docx/.xlsx/.pptx. "Vẫn lưu" saves; "Hủy" (or closing the question) saves nothing.

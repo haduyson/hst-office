@@ -1,7 +1,8 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Glyphs of the Extensions tab buttons: the org.hst.office.vi: commands of the bundled HST extension.
 
-Same construction desk and pen as Stage 1 (drawing.py). Artwork is CC-BY-4.0; script is AGPL-3.0-only.
+Same construction desk and pen as Stage 1 (drawing.py). Artwork is CC-BY-4.0; the script is proprietary (LicenseRef-HST-Proprietary).
 """
 from drawing import add, p, r, c
 

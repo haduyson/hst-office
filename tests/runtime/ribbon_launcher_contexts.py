@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Document contexts for the ribbon launcher checks (check-ribbon-launchers.py on Linux,
 check-windows-ribbon-launchers.py on Windows): a contextual tab's launcher needs a table, a picture or a shape
 selected. Plain UNO, so the office's own python.exe runs it."""

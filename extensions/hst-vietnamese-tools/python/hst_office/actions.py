@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """User-facing HST commands: gather UI input, call the logic modules, report results. One function per command."""
 import unohelper
 

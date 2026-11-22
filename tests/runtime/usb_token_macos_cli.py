@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Native macOS run of HST ▸ Thiết lập USB Token in a real HST Office.app, signing with SoftHSM2.
 
 macOS counterpart of check-usb-token-setup.py (no platform override: real Darwin, bundled NSS

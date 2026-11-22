@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Export references (the library or the items of a document) to RIS, CSL-JSON or BibTeX, so they move to other
 reference managers. Text is returned; the caller writes it as UTF-8. Pure Python (no uno)."""
 import copy

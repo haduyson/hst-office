@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # dmgbuild settings for the HST Office disk image (executed by `python -m dmgbuild -s`).
 # Defines: -D app=<path to "HST Office.app"> -D repo=<repository root>.
 # Replaces upstream's dmg layout (setup_native/source/packinfo/osxdndinstall.png and the binary

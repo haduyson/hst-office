@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Documents for check-ribbon-contextual.py: a table, a picture, a shape and a chart in each app, a pivot table in
 Sheets and a page header in Writer, made through UNO; and the selection put back in the text or a plain cell."""
 import time

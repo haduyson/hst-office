@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: what the user never has to see. The document remembers its recipient list in the user-defined
 property HSTMailMerge (JSON: source file, sheet, unchecked recipients, order, file-name pattern, folder, the last
 format chosen per column, document type, address block, greeting, rules, id); the merge

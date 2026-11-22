@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Paste and Paste Special follow the system clipboard when asked over UNO (Linux, gtk3, GUI build, X display).
 
 Off the main thread (a UNO client) the gtk3 clipboard answers its targets from what the main thread last read

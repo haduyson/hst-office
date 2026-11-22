@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Plain-Python stand-ins for driving the real source form (citation_entry_dialog.run) without an office.
 
 FakeDialog mirrors the dialogs.Dialog surface the form uses; ``script`` is the list of user actions run while the

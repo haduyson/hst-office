@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """How W16 opens a file on Windows (tooling Python only): ShellExecuteEx with a verb name, and an Explorer window
 with the file selected, driven by a real double click or a real right click and a click on the context-menu entry
 (pywinauto UIA reads the menu, SendInput clicks)."""

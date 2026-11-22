@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """KeyTip, tab access key and shortcut parity with the familiar office suite (scripts/check-keytips-parity.py).
 
 The committed tables must pass the offline check, the check must fail on a regression (a tab letter changed, a tab label

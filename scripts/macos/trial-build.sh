@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # HST Office macOS build on a GitHub-hosted runner (see .github/workflows/desktop-macos.yml).
 #   trial-build.sh --probe | --free-disk | --tools | --extract | --options | --patch | --configure | --fetch | --build | --collect | --verify
 # Env: HST_ARCH (arm64|x86_64, must match the host), HST_REPO (checkout), HST_WORK (default

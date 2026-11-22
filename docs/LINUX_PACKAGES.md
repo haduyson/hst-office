@@ -29,7 +29,7 @@ sudo scripts/build-linux.sh --rpm-appimage         # máy build cục bộ: dist
 - [scripts/linux/make-rpm.py](../scripts/linux/make-rpm.py) (+ [rpm_spec.py](../scripts/linux/rpm_spec.py)): `rpmbuild` của
   Ubuntu 22.04 (gói `rpm`, tự cài ở bước này, **không** thêm vào `--deps` để môi trường build `.deb` không đổi).
   `Name: hst-office`, `Version: <lõi>[~<pre-release>]` (`1.0.2`, `1.0.2~beta.1`; dấu `~` xếp bản thử trước bản chính
-  thức), `Release: 1`, `Vendor: HASON TECH`, `License: MPL-2.0 AND AGPL-3.0-only`. `AutoReqProv: no`: `Requires` tính từ
+  thức), `Release: 1`, `Vendor: HASON TECH`, `License: MPL-2.0 AND LicenseRef-HST-Proprietary`. `AutoReqProv: no`: `Requires` tính từ
   `readelf` — mọi `DT_NEEDED` mà gói không tự mang theo, kèm phiên bản ký hiệu (`libc.so.6(GLIBC_2.34)(64bit)`, như
   `elfdeps` của rpm); thư viện đi kèm trong `/opt` không bị đòi hỏi và **không** được khai báo `Provides`, nên gói không
   bao giờ "cung cấp" thư viện của bản phân phối hay kéo LibreOffice của bản phân phối. `Recommends`: `urw-base35-fonts`

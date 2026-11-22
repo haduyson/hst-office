@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows crash and hang events count only for the session's own soffice.bin.
 
 Every LibreOffice-based suite runs a process named soffice.bin. The reader matched events by that name and time only,

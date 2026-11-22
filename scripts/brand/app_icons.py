@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Desktop application icons derived from the committed HST tile masters (branding/icons/app).
 
 Each master is a 1024 px RGBA PNG rendered from its SVG (scripts/brand/render-app-icon-masters.py).

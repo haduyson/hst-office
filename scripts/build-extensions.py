@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build the bundled LibreOffice extensions (.oxt) deterministically.
 
 Usage: python3 scripts/build-extensions.py --output dist/extensions [--verify-reproducible] [--update-test-mode]
 
 Each extensions/<name>/ directory becomes <name>.oxt. Shared data from data/vietnamese/ (and data/hst/solutions.json for the welcome dialog) is copied into the
-package (data/), the brand images of the welcome dialog and user guide into icons/, the AGPL licence and a generated notice file go into license/. ZIP entries are sorted, use a
+package (data/), the brand images of the welcome dialog and user guide into icons/, the HST Office Software Terms of Use (/LICENSE) and a generated notice file go into license/. ZIP entries are sorted, use a
 fixed timestamp and permissions, so two builds of the same tree are byte-identical.
 data/hst/release.json (release id, e.g. 1.0.0-beta.2; core must equal /VERSION) becomes data/release.json, read by
 the update check. --update-test-mode marks that copy so the update check accepts a local http://127.0.0.1 test

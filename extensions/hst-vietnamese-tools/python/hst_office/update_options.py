@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Cập nhật (OptionsDialog.xcu, dialogs/Update.xdl): "Gửi mã máy ẩn danh khi kiểm tra cập nhật và báo lỗi".
 
 Reads and writes SendInstallId through update_config, so an administrator lock (docs/UPDATE_ADMIN.md) shows the box

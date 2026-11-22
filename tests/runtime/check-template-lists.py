@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What the template lists of a real HST Office offer, and screenshots of each list to look at.
 
 Usage: python3 tests/runtime/check-template-lists.py [--instdir upstream/libreoffice/instdir]

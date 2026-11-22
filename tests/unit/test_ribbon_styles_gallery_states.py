@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-styles-gallery-states.patch: Writer's Styles gallery keeps 6, 4, 3 previews at the large, medium and
 small group (gap list G05), through the ribbon ladder's "hst-gallery-state" property."""
 import unittest

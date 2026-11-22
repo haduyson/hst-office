@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared pieces of the citation dialogs (UNO): messages and choices with buttons in the UI language, file pickers,
 the user's library, and one-line labels of sources for list boxes."""
 import math

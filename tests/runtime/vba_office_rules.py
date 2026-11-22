@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What real Office-made VBA projects have and HST's must have: a repeatable comparison.
 
 Usage: python3 tests/runtime/vba_office_rules.py FILE.docm|.xlsm|.xls|.doc [...]

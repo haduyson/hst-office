@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Insert › Symbol drop-down starts with the symbols Word users pick every day (hst-symbol-defaults.patch).
 
 The drop-down shows the favourite characters and the recent ones. Their defaults in Common.xcs must hold the check

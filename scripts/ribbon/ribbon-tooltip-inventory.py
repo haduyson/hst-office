@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon commands that get a tooltip, per app, read from a patched tree: data/ribbon/tooltip-inventory.json.
 
   python3 scripts/ribbon/ribbon-tooltip-inventory.py --src TREE [--write]   (TREE: fresh-applied source tree)

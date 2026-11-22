@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pixel judgement of check-nd30-type-list.py: is the open "Loại văn bản" list visible in a band of a screenshot?
 
 The list shows its rows' text there; a field painted over the list is an empty white box, so almost every pixel row of

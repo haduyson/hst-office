@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Steps of check-backstage-flows.py: AT-SPI lookups, the New page and the keyboard."""
 import os
 import time

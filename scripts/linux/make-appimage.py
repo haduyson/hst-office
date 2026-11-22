@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Repack the single HST Office .deb as an AppImage that runs on any x86-64 Linux with glibc >= the .deb's baseline.
 
 No second build: the AppDir is the .deb payload (/opt/hst-office1.0 plus launchers, icons, MIME types) with

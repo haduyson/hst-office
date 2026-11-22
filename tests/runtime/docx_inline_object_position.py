@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inline objects in a run with <w:position> (hst-docx-inline-object-position.patch).
 
 Word puts an inline object's bottom on the baseline and moves the whole run by w:position

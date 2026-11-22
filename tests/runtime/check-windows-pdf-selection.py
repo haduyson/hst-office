@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF text selection keeps the selected text readable on an INSTALLED HST Office (Windows).
 
 Opens a synthetic text page (pdf_selection_highlight.sample) in HST PDF, selects text with a real mouse drag

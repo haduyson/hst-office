@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: "Hoàn tất và trộn" through the LibreOffice engine (com.sun.star.text.MailMerge). The chosen recipients
 are staged first (mail_merge_session.stage), so the engine merges exactly what the preview showed, in that order.
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Crash signature from what each platform recorded (pure parsers plus two small readers): the fatal signal or
 exception and the faulting stack as "module +offset" frames. Module names keep only their base name; absolute
 addresses (different at every start) are dropped. The result passes the privacy filter in the report.

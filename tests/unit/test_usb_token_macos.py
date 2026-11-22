@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Real macOS bundle names in temporary trees; no native Mach-O claim on Linux."""
 from contextlib import contextmanager
 import json

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Bibliography order: language groups (Vietnamese first), alphabetical or first-citation order, numbers and year
 suffixes (2010a, 2010b). Pure Python (no uno).
 

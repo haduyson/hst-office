@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The ribbon stays on a contextual tab while its object stays selected (hst-ribbon-contextual-keep-tab.patch):
 vcl/inc/HstContextualKeepTab.hxx compiled with a driver that replays the context changes a command sends
 through a model of NotebookbarTabControlBase::SetContext, and the patch's wiring into the tab control."""

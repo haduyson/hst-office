@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Red-stamp sample PDFs for the HST PDF colour check, made locally (PIL and HST Office).
 
 The workflows users have: a .docx with pure red text, a photo-like scanned JPG stamp and a PNG

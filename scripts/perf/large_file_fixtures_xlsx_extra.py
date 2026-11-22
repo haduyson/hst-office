@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pivot tables and pictures added to a workbook of large_file_fixtures_xlsx.write_xlsx (sheet DuLieu, columns
 A..O/P), for large_file_fixtures_sized.py. The parts are written as the common spreadsheet application writes them.
 

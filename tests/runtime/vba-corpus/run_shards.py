@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Run a jobs list in N sandboxes side by side. Usage: run_shards.py IMAGE INSTDIR CORPUS JOBS.json OUT.jsonl [N] [LIMIT_SECONDS]"""
 import json
 import os

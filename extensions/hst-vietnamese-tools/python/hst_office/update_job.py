@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Update check: the start-up job (Jobs.xcu, onFirstVisibleTask) and the check the org.hst.office.update: command
 handler starts (update_handler.py: menu "Kiểm tra cập nhật" and the infobar buttons).
 

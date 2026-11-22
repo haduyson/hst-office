@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Offline ribbon parity check (scripts/ribbon/check-office-parity.py): .ui parsing, statuses, launchers, .po reading."""
 import importlib.util
 import json

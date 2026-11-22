@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Dispatcher of the local build queue (`build-queue.sh dispatch`, systemd unit hst-build-queue.service).
 
 Stable module path kept for existing callers; the code is in scripts/build_infra/dispatch_loop.py (with

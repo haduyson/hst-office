@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Linux install kind (dpkg / rpm / AppImage) -> manifest platform key, schema 3 manifests, and the AppImage download
 beside the running file (update_linux_install, update_logic, update_prepare)."""
 import base64

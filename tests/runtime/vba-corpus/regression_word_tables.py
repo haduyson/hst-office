@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Regression cases for Word tables and Document members real macros use, checking their effect."""
 
 WORD_TABLES = """Private Function NewTable(rows As Long, cols As Long) As Object

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Which OS accessibility route reaches the office's windows (tooling Python; evidence, no checks).
 
 macOS: the AX app element before and after AXManualAccessibility / AXEnhancedUserInterface, with error codes, and

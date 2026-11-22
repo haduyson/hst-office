@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Test-only fault injection for check-close-crash-handler-windows.py: an access violation on the main (oldest)
 # thread of ONE soffice.bin that the caller started itself (it passes that pid). The thread is suspended, its return
 # address pushed and RIP set to 0, so it faults as soon as it runs again; the office's own crash handler takes over.

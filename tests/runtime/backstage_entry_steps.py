@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Steps of check-backstage-flows.py: the "Xuất PDF dạng sách" button of the Export page and the "Cập nhật HST Office"
 entry of the Info page (the bundled extension's org.hst.office.update: commands)."""
 import time

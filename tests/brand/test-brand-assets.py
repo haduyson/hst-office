@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Brand asset tests: source untouched, mark pixel-identical, sizes, reproducibility."""
 from copy import deepcopy
 import hashlib

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Move citations into or out of footnotes when the document switches between a note style (Chicago notes) and an
 in-text style (UNO). Note styles keep every HST citation alone in its own footnote (engine contract, phase 03);
 in-text styles keep them in the text. Runs inside the caller's Undo context, before the refresh that reformats.

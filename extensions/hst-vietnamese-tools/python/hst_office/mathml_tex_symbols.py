@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: the characters and names of a formula's MathML and their LaTeX (mathml_to_tex)."""
 import html.entities
 import re

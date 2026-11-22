@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Admission state of the Linux build slots ($HST_BUILD_ROOT/locks/slots.json under an flock).
 """
 import contextlib

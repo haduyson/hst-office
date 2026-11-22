@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Group captions versus key tips (is_group_caption in tests/runtime/ribbon_scorecard_walk.py).
 
 The key-tip check treats short capital labels as tips; a one-letter group caption such as Sheets' "Ô" must not count.

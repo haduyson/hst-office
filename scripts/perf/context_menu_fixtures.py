@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Deterministic, dependency-free fixtures (flat ODF) for context-menu measurements.
 
 Content is synthetic lorem-style text; no private data. `python3 context_menu_fixtures.py

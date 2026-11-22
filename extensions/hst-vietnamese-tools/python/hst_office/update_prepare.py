@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Worker-thread half of "Cập nhật ngay" (no uno): signed manifest -> installer for this OS -> verified file in the cache.
 
 The manifest is fetched and its Ed25519 signature checked again at the click, so the SHA256 and size that gate the

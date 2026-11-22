@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Visible office windows right now, per OS, for scripts/perf/startup-timing.py: [(pid, width, height, title, kind)],
 on Windows followed by the window's left and top screen pixel.
 

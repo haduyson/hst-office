@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Regression cases: class modules (Implements, events) and Excel tables."""
 
 CLASS_ATTRS = 'Attribute VB_Base = "0{FCFB3D2A-A0FA-1068-A738-08002B3371B5}"\nAttribute VB_GlobalNameSpace = False\nAttribute VB_Creatable = False\nAttribute VB_PredeclaredId = False\nAttribute VB_Exposed = False\n'

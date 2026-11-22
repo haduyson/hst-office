@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of the new-version pop-up after the automatic check, in a real HST Office (Linux, Xvfb).
 
 Usage: python3 tests/runtime/check-update-popup.py --instdir <instdir> [--out DIR] [--display :143]

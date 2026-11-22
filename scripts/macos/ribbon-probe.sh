@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Screenshot the Writer, Sheets and Slides ribbon of an HST Office dmg on a macOS GUI runner, in light and dark
 # appearance, with the shipped defaults and with a ribbon-colour override in the profile.
 #   ribbon-probe.sh <HSTOffice_*.dmg> <out-dir> [transparency-override]

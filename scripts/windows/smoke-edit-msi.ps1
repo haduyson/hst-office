@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Windows smoke: write a copy of an HST Office MSI with table edits, to try an installer rule without a full build.
 #   smoke-edit-msi.ps1 -Edit legacy-reinstall -Msi <in.msi> -OutMsi <out.msi>
 #   legacy-reinstall: a detect-only Upgrade row on LibreOffice's code (the 1.0.0.x betas 1-4) sets HSTLEGACYPRODUCTS;

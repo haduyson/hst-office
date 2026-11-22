@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: LaTeX math (the body of a $…$ span) to the formula language of HST Công thức (no UNO).
 
 convert(tex) returns the formula text or raises TexError; a span that cannot be converted stays text. The reader

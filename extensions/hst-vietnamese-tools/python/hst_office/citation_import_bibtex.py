@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """BibTeX / BibLaTeX import (Google Scholar, Scopus, doi.org, arXiv, Zotero, Mendeley): entry types and fields
 mapped to CSL-JSON, LaTeX decoded, "and"-separated names parsed (a braced name is an organisation; Vietnamese
 names without a comma are recognised by citation_names). Pure Python (no uno)."""

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-v3-layout.patch: the v3 group layout, the fit, the elastic banner and the details of the locked design."""
 import unittest
 

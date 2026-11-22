@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: screenshots and accessible boxes of the ribbon's banner, tab titles and tab row, for check-banner-fit.
 
 Per theme (light, then dark: the office's own appearance setting, set in the profile and the office started again),

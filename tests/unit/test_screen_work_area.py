@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The work area a dialog may use: Toolkit.getWorkArea() is the whole display, taskbar included, so Windows reads
 SPI_GETWORKAREA and other systems keep a panel margin; the window frame and title bar need room too."""
 import types

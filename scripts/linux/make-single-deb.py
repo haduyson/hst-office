@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Repack the split HST Office .deb set into ONE installable package.
 
 Upstream's installer writes ~38 inter-dependent .deb files; a graphical installer

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Capture three tabs per app with geometry evidence on an existing Xvfb display.
 
 Run each baseline/product, light/dark, scale 1/2 combination in a separate process.

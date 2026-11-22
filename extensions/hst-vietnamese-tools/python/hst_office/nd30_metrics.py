@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Line widths and word wrap from Times New Roman advance widths (pure logic, no `uno`).
 
 The table comes from Liberation Serif, whose advances equal Times New Roman's, so rule lengths are computed from the

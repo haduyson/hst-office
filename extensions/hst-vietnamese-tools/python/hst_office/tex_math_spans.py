@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức: where the LaTeX math spans are in a piece of text (no UNO here).
 
 Delimiters, as AI tools and LaTeX write them:

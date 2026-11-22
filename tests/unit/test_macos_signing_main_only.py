@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """desktop-macos.yml signs only on main (the macos-signing environment admits no other ref): elsewhere the sign job
 is skipped by its condition and the build leaves a "Signing skipped" notice, so release-candidate runs pass and
 r1-auto-macos can gate them. The r1 old-profile upload runs only when its check ran."""

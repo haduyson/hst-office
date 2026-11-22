@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST ▸ Định dạng công thức hoá học (org.hst.office.vi:ChemFormula) in HST Writer, Slides and Draw.
 
 Formats the selected text, or the word just before the cursor when nothing is selected, with chem_formula's rules,

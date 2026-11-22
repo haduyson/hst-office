@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Document tab checks of check-windows-smoke.py (see there).
 
 The first-start welcome dialog waits until no document is loading (welcome_job.run_later), so on a busy machine it can

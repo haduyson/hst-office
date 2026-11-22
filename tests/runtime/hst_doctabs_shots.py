@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Screenshots of the document tab strip with 1, 3 and 8 documents open in one window of Writer, Sheets and
 Slides (8 overflows the strip), plus Writer + Sheets + Slides in the HST Office window (Linux), one inactive tab
 under the pointer: the before/after pairs of the strip's frame coat.

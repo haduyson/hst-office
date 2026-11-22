@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Sheets commands "Bỏ dấu", "Tách họ tên" and "Sắp xếp theo tên" (one undo step each; "Xóa dòng trống" is in
 blank_rows_calc.py). Cells are read and written a whole range at a time (getDataArray/setDataArray)."""
 from . import utilities_texts as T

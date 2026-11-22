@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The soffice.bin processes that belong to one harness office, recognised by its private profile.
 
 Every WinOffice starts soffice with -env:UserInstallation=<its own profile URL>; soffice.bin keeps that argument,

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Harness stores run on the office's main thread (uno_main_thread_load.store), not in the UNO bridge thread.
 
 On Windows, storeToURL from the bridge thread right after a load of a document with MathType OLE objects spun

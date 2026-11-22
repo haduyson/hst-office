@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Apply A4 + ND30 margins (and page numbers hidden on the first page) to the current Writer page style.
 
 ND30 I.1 A4; I.3 margins top/bottom 20-25, left 30-35, right 15-20 mm; I.7 page number centred in the top

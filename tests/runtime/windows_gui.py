@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows side of the GUI runtime checks: an installed HST Office started with its own profile, its windows, real
 mouse and keyboard input (SendInput), screenshots and the accessibility tree over UNO.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # HST Office and the official LibreOffice installed and running side by side on a macOS GUI runner.
 #   coexist-probe.sh <HSTOffice_*.dmg> <LibreOffice_*.dmg> <out-dir>
 # Installs LibreOffice, then HST, into /Applications and fails when

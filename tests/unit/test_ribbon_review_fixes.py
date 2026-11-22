@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Regression guards for the ribbon engine fixes, read from the patches (no build needed).
 
 The behaviour itself is checked on a real GUI by the runtime checks named in each test; these keep

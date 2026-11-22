@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Document tabs keep the user interface mode of their own module, on an INSTALLED HST Office (Windows).
 
 The Windows counterpart of check-ui-mode-tabs.py; scenario and judgement: ui_mode_tabs_scenario.py. Before

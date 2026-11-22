@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Inside part of check-appimage.sh (root in a throw-away container; the AppImage runs as user "tester").
 set -uo pipefail
 pass() { echo "PASS $*"; }

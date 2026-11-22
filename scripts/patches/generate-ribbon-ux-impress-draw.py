@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate patches/libreoffice/hst-ribbon-ux-impress-draw.patch: the ribbon UX rework of HST Slides and HST Draw.
 
 Usage: scripts/patches/generate-ribbon-ux-impress-draw.py --tree DIR [--out FILE] [--check]

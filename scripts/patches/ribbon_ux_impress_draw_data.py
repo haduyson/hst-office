@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Strings and tables of the HST Slides and HST Draw ribbon rework (generate-ribbon-ux-impress-draw.py).
 
 Every string is (English msgid, Vietnamese msgstr); the generator writes the English into the .ui files and the

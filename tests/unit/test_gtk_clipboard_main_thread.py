@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-gtk-clipboard-main-thread.patch: gtk3 clipboard queries never wait for gtk off the main thread.
 
 A UNO-driven office hung for good when a Paste state built on the request thread called

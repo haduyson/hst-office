@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The synthetic large .docx of the recovery kill check: a valid package, reproducible, as large as its picture."""
 import os
 import struct

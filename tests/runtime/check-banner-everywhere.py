@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that the HASON TECH banner is visible in every app and every user interface (gtk3, real GUI).
 
 Usage: python3 tests/runtime/check-banner-everywhere.py --instdir DIR [--display :171] [--out DIR]

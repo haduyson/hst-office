@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Pure scoring of the ribbon scorecard (ribbon_scorecard.py): structure, scaling, painting and gallery scores from
 saved observations and the offline parity report. No office and no display."""
 import importlib.util

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Quick Search list of the ND30 wizard's "Loại văn bản", shown as a popup over the form.
 
 It is not a control of the dialog: VCL does not clip sibling controls against each other, they are assumed not to

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Command map of the HST ribbon for the "Hỏi cách dùng" answer of the Trợ lý AI.
 
 The map is read from the ribbon definition the office really shows: the app's notebookbar.ui (the user's profile copy

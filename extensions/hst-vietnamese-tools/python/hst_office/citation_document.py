@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST citation fields in a Writer document (UNO): list them, insert them, write a refresh plan.
 
 Fields are text fieldmarks of type UNHANDLED carrying their code as the parameter vnd.oasis.opendocument.field.code

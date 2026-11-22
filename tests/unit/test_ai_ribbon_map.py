@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trợ lý AI "Hỏi cách dùng": the ribbon command map read from the notebookbar.ui files.
 
 Offline: the parser rules on a small .ui (tabs, contextual tabs, captions with a launcher, the HST ribbon label, a

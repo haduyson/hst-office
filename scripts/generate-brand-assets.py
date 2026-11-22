@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate HST Office brand assets from the owner-provided HASON TECH logo.
 
 The blue "HS" triangle mark is copied pixel-for-pixel from the source; only the

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Standard banner sizes ("sizes" field of a version 1 banner manifest item).
 
 The banner is never stretched: a campaign submits one fixed artwork per standard width, at 1x and 2x, and the

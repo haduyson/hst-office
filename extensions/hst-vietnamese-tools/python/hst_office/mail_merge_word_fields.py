@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, Word fields: MERGEFIELD and IF evaluated for one recipient with Word's rules. Pure Python.
 
 A Word mail-merge document opened in HST keeps each field Writer cannot evaluate itself as a database field whose

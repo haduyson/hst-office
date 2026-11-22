@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-qat-keytip-split.patch: a quick access split button's KeyTip runs its command (Alt+2: Undo)."""
 import unittest
 

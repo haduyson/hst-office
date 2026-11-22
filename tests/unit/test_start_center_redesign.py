@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The new Start Center (hst-start-center-redesign.patch), read from the patch: the menu of the left column
 (no shared files, no account), the HASON TECH solutions that mirror data/hst/solutions.json, the tiles and the
 ids automation uses, the Vietnamese texts, the HST application icons, the shared HST design tokens and the thin

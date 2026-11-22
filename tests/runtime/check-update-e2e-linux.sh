@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # "Cập nhật ngay" end to end in a real, installed HST Office, in an auto-removed container (Xvfb, user "tester"):
 # install the OLD package, start it with a document, dispatch org.hst.office.update:Install on the document
 # (update-e2e-drive.py + update_e2e_macro.py), then check that the office quit, the NEW package is installed and an

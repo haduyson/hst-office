@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The org.hst.office.update: command handler (update_handler.py): every command reaches the update code it imports on
 use, and the "Kiểm tra cập nhật" menu state follows the ManualCheck lock. The office is stubbed."""
 import unittest

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The tooltips' second lines (hst-ribbon-description) of the most used HST Sheets ribbon commands:
 button id -> (English msgid, Vietnamese msgstr), context "TabbedCalc|<id>"."""
 

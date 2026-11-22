@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Texts that scripts/linux/make-single-deb.py writes into the single HST Office .deb: the package
 description, the DEP-5 copyright file, lintian overrides, the postrm cleanup and the AppStream metainfo."""
 
@@ -18,21 +19,34 @@ COPYRIGHT = """\
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: HST Office
 Upstream-Contact: HASON TECH <lienhe@hasontech.vn>
-Source: https://github.com/haduyson/hst-office
+Source: https://office.hasontech.vn
+ Source code of the MPL-2.0, LGPL and GPL components corresponding to this
+ release: on request to HASON TECH <lienhe@hasontech.vn>.
 
 Files: *
 Copyright: 2000-2026 The Document Foundation and LibreOffice contributors
-License: MPL-2.0
- This Source Code Form is subject to the terms of the Mozilla Public License,
- v. 2.0. The full text and the licences of bundled third-party components are in
- /opt/hst-office1.0/LICENSE and /opt/hst-office1.0/LICENSE.html. On Debian systems
- the MPL-2.0 text is also in /usr/share/common-licenses/MPL-2.0.
+           2026 HASON TECH
+License: MPL-2.0 and LicenseRef-HST-Proprietary
+ The LibreOffice code, including the LibreOffice files modified by HASON TECH,
+ is subject to the terms of the Mozilla Public License, v. 2.0, or to the
+ licence named in each file. The full text and the licences of bundled
+ third-party components are in /opt/hst-office1.0/LICENSE and
+ /opt/hst-office1.0/LICENSE.html. On Debian systems the MPL-2.0 text is also in
+ /usr/share/common-licenses/MPL-2.0. The components written by HASON TECH are
+ under LicenseRef-HST-Proprietary (below).
 
 Files: opt/hst-office1.0/share/extensions/hst-*
 Copyright: 2026 HASON TECH
-License: AGPL-3.0-only
- On Debian systems the full text is in /usr/share/common-licenses/AGPL-3
- (or at https://www.gnu.org/licenses/agpl-3.0.html).
+License: LicenseRef-HST-Proprietary
+
+License: LicenseRef-HST-Proprietary
+ HST Office Software Terms of Use. HST Office is the property of HASON TECH and
+ is free of charge to use. Reverse engineering, modification and
+ redistribution are not permitted without the written permission of
+ HASON TECH, except where the licence of a third-party component or the law
+ allows it. The software is provided without warranty. The full terms
+ (Vietnamese and English) are in the "HST Office" section of
+ /opt/hst-office1.0/LICENSE and /opt/hst-office1.0/LICENSE.html.
 """
 
 # Intentional departures from Debian policy, same as upstream LibreOffice packaging:
@@ -55,12 +69,14 @@ fi
 exit 0
 """
 
+# project_license: "LicenseRef-proprietary" is the AppStream identifier software centres show as proprietary; the
+# LibreOffice code stays MPL-2.0.
 METAINFO = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>vn.hasontech.hstoffice</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MPL-2.0 AND AGPL-3.0-only</project_license>
+  <project_license>MPL-2.0 AND LicenseRef-proprietary</project_license>
   <name>HST Office</name>
   <developer id="vn.hasontech"><name>HASON TECH</name></developer>
   <summary>Bộ ứng dụng văn phòng: văn bản, bảng tính, trình chiếu</summary>

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the HST Sheets 1.0.3 features on a real build (installed package or instdir).
 
 Usage: python3 tests/runtime/check-sheets-1-0-3.py --instdir DIR [--out DIR] [--phase en-US:en-US]

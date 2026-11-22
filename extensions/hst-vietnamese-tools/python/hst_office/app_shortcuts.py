@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Launchers of HST Writer, HST Sheets and HST Slides (macOS: also HST Draw and HST PDF) outside the office (no uno;
 tested in tests/unit).
 

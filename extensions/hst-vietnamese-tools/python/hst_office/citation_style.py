@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Citation style registry: HST styles (JSON written by HST from the style manuals and university guides), the
 user's own styles (an HST style plus changed options) and CSL files the user imported (a subset is understood).
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """ND30 administrative-document data, formatting and validation (pure logic, no `uno`). Layout: nd30_layout.py.
 
 Provenance: algorithms ported from archive/onlyoffice-plugin-first@e0517d71c813535087c401b2683bec0784d71fd8,

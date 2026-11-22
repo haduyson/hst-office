@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Keyboard shortcuts as officecfg resolves them, for the shortcut parity check (scripts/check-keytips-parity.py).
 
 Accelerators.xcu maps key codes ("S_MOD1") to commands per module (com.sun.star.text.TextDocument, ...) and globally;

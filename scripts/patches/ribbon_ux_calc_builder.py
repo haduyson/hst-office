@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The edited notebookbar.ui of generate-ribbon-ux-calc.py: finding and moving objects, new toolboxes,
 buttons and drop-down menus, the translatable strings they bring (for sc/messages.po)."""
 import xml.etree.ElementTree as ET

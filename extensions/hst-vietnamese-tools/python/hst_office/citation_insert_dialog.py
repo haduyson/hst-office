@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The "Chèn trích dẫn" dialog (also "Sửa trích dẫn" for the citation under the cursor).
 
 Search the user's library or the sources this document already cites (the copies carried in its citations, so a

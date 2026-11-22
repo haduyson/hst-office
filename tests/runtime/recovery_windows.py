@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of check-recovery-kill-windows.py: one office per profile under the test folder, driven over UNO from the
 office's own Python; windows found and answered with user32 (Enter on the dialog's default button)."""
 import ctypes

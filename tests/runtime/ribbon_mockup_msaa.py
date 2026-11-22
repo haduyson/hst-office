@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows collector for ribbon_mockup_geometry: parses the TSV of windows-ribbon-nodes.ps1 (MSAA through oleacc).
 
 Each line is: index, parent index, depth, MSAA role, MSAA state, x, y, w, h, name. The boxes are made relative to the

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """In-text clusters: number ranges, one bracket per number, superscript, locators, author–year collapsing."""
 import unittest
 

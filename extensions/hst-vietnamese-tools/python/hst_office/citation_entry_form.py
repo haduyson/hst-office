@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The source form: which fields each type of source shows, and the conversion between the form's text boxes and
 a CSL-JSON item. Pure Python (no uno); the dialog is citation_entry_dialog.
 

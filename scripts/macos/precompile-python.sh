@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Give HST Office.app valid, sealed Python bytecode before it is signed.
 #   precompile-python.sh <HST Office.app>
 # Upstream compiles the framework's standard library at `make install`, then copies the framework into the

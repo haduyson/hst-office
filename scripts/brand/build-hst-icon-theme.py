@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Build deterministic HST icon archives with Python's standard library only.
 
 --out DIR writes images_<theme>.zip and unpacked themes for inspection.

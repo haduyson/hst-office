@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chuyển TeX ⇄ công thức in HST Writer: one formula in and out of the text. A span becomes a formula anchored as a
 character, on the text baseline, at the paragraph's font size, its span kept as its description; display math gets a
 centred paragraph of its own. A formula turns back into that span when its formula is still what the span gives,

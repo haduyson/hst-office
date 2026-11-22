@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Print page of the File panel (hst-backstage-print.patch): the print dialog's panel form, the hand-over of a
 print job from vcl to the File panel, and the Print page that hosts it. Read from the patch."""
 import os

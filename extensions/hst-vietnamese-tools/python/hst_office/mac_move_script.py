@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The script of the start-up move into /Applications (mac_app_location): HEADER + MAC_SWAP + MAC_MOVE, written into a
 private folder and run without a shell. Its digest goes into the arguments, so the root step (admin_command) can refuse
 a copy of the file that changed after it was written."""

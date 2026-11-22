@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """index.json of one document's folder in the "Phiên bản trước" store (version_store): read, repair, write.
 
 {"schema": 1, "path": <original path>, "versions": [{"file", "saved", "captured", "size", "sha256"}, ...]}, newest

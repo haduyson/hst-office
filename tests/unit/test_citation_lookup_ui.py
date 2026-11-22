@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Online lookup in the citation source form sends something only when one of its two buttons is clicked.
 
 What docs/PRIVACY.md promises, checked on the real form (citation_entry_dialog.run) driven through a fake dialog:

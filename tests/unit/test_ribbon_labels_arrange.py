@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ribbon-labels-arrange.patch: Arrange commands of the Layout tabs show their labels (gap list G10)."""
 import unittest
 

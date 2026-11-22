@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A number outside a function's domain is #NUM! in HST Sheets, text or a wrong type stays #VALUE!.
 
 Read from the new side of hst-sheets-num-errors.patch, so no LibreOffice tree is needed (runtime:

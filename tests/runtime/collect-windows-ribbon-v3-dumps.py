@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: the v3 ribbon's layout dumps and screenshots of every main tab, on an INSTALLED HST Office (console session).
 
 The office runs maximised with HST_RIBBON_DUMP_LAYOUT=<out>\\dumps\\<app>-<label>-live (hst-ribbon-v3-layout.patch

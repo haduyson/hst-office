@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 <#
 .SYNOPSIS
   HST PDF preview and thumbnails in a real File Explorer window (run in the console user's session).

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Minimal Xlib/XTest driver (ctypes) for timing popup-window appearance on X11.
 
 Detection = a new, viewable top-level window (child of root) that was not viewable in

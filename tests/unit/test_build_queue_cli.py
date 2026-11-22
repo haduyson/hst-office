@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """End to end through the real entry points (`python3 -I scripts/build-queue.py ...` and
 `python3 -I scripts/linux/build-slots.py ...`), against a temporary queue and slot root: every CLI verb, a real
 submit (git ref resolution, submitter from the environment) and one dispatcher loop iteration."""

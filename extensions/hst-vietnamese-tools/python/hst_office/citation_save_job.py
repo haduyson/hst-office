@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Before a document is saved, bring its citation numbers and bibliography up to date (job on OnSave, OnSaveAs).
 
 Exits at once for documents without HST citation settings (one property lookup), so every other save costs

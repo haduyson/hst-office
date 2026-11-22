@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """What check-update-lock.py reads from the running office: the state the HST protocol handler reports for a
 command, and the entries of the ribbon's ≡ menu.
 

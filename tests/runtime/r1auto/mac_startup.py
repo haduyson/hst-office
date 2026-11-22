@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """M1/M2: quarantine, Finder-style DMG launch, actual move and relaunch."""
 from pathlib import Path
 import subprocess

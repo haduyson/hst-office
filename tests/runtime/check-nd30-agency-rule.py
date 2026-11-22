@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The rule under the agency name at each length the ND30 wizard offers (1/3, 2/5, 1/2, as long as the line above, a
 typed length in mm, one longer than the cell), measured in the exported PDF of the real build: as long as the layout
 says, centred under the agency's text and inside the header cell (ND30 Phụ lục I, II.2b).

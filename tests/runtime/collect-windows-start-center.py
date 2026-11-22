@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: screenshots and accessible boxes of the new Start Center (hst-start-center-redesign.patch), then a verdict.
 
 Collect (console session, under C:\\hst-test\\console-lock.txt, with an environment free of another image's

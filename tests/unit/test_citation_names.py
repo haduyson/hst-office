@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese and foreign names: parsing, initials, recognition and Vietnamese alphabetical order."""
 import unittest
 

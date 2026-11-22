@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Did the computer start again after the previous session's last sign of life?
 
 A session that never closed and left no crash or hang record ("not closed") was either ended while the system kept

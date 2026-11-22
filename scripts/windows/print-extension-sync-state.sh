@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Print what decides whether an office start re-registers the bundled extensions in a profile (Git Bash on Windows):
 # user/extensions/buildid against the install's version.ini buildid (desktop app.cxx cleanExtensionCache) and the
 # modification time of user/extensions/bundled/lastsynchronized against share/extensions (dp_misc.cxx

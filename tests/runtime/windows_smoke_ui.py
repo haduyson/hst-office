@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Window, dialog and dispatch helpers of check-windows-smoke.py (see there)."""
 import os
 import subprocess

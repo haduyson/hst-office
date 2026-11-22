@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Result dialog of HST ▸ Kiểm tra cập nhật…: up to date / new version (with its actions) / could not check."""
 from . import update_config
 from . import update_ui as ui

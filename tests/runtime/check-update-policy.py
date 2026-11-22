@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Prove the update-lock templates of the user guide (extensions/hst-vietnamese-tools/help/files) in a real office.
 
 Linux build tree (run as root; the office runs as the build user, the original instdir is never written):

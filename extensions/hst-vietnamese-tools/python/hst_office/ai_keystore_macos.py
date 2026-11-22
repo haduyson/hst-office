@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """macOS login keychain (Security.framework generic passwords through ctypes) for the AI API keys.
 
 One item per provider: service "HST Office AI", account = provider. The keychain encrypts it with the user's login

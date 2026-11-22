@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """check-banner-fit.py's tab-row rule on synthetic screenshots: the ribbon's tab row must be one surface from the
 first tab title to the window's right edge, every title on it.
 

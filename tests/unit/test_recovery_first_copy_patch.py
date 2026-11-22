@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-recovery-first-copy-registered-modified.patch: a document already modified when AutoRecovery registers it gets
 its first copy 30 s later, like one changed after registration (runtime: tests/runtime/check-recovery-first-copy.py)."""
 from pathlib import Path

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """EndNote XML import (<xml><records><record>…), common in Vietnamese medical faculties. Parsed with the standard
 library; a DOCTYPE or ENTITY declaration is refused before parsing, so entity expansion cannot be abused.
 Pure Python (no uno)."""

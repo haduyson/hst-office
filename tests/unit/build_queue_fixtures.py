@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared helpers of the build queue tests: the queue and dispatcher modules loaded from their stable paths,
 a temporary queue store, and a fake runner."""
 import importlib.util

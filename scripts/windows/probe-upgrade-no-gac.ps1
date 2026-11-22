@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Upgrade probe: a new HST Office MSI over 1.0.1 leaves no CLI-UNO assembly of its own in the .NET GAC, and VBA still runs.
 #   probe-upgrade-no-gac.ps1 -Phase upgrade|maintain -OldMsi <1.0.1 msi> -NewMsi <msi> -Out <dir> [-LibreOfficeMsi <msi>]
 # 1.0.0 and 1.0.1 installed cli_ure, cli_basetypes, cli_uretypes, cli_cppuhelper, cli_oootypes and their policy.1.0.*

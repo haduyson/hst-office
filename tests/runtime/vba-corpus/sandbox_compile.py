@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inside the disposable container: which code does the Basic compiler refuse? Nothing from the file runs: a macro is only compiled.
 
 argv: jobs.json. The file is loaded with macros off; each module, then each of its procedures, then each line of a failing procedure

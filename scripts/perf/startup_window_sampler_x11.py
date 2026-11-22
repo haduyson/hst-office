@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Visible office windows on Linux (X11), for scripts/perf/startup_window_samplers.py: the mapped children of the root
 window owned by oosplash or soffice.bin (_NET_WM_PID) as [(pid, width, height, title, kind)], kind "dialog" for a
 transient window, else left to the size rule. Sizes are device pixels."""

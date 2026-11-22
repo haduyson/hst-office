@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """tests/runtime/citations_docx_fields.py: reading complex fields from .docx XML the way another
 word processor does (code from w:instrText, result from the text between separate and end)."""
 import os

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Office side of the macOS app launchers: refused for a .dmg copy, off macOS and for other software's start; the
 one-time notice; the options buttons "Gỡ biểu tượng ứng dụng" / "Thêm lại biểu tượng ứng dụng"."""
 import os

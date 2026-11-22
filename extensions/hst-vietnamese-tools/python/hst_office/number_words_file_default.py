@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The file's own default of number and money reading (Sheets): user-defined document properties (Tệp tin ▸ Thuộc
 tính ▸ Thuộc tính tùy chọn), saved in .ods (meta:user-defined) and .xlsx (docProps/custom.xml) alike.
   * money (DOCTIEN): HST.DocTien.DonVi, HST.DocTien.DonViLe, HST.DocTien.CachDoc (option text, e.g. "ngàn linh");

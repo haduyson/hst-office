@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """How this Linux copy of HST Office was installed, and so which installer of the signed manifest updates it.
 
   "appimage"  started from an AppImage: $APPIMAGE is set by the AppImage runtime and this program lies inside its

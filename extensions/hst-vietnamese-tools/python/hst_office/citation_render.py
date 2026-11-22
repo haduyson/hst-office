@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Render one reference with an HST style layout (the template language is described in citation_style_check).
 
 Affixes of an element that prints nothing vanish with it, so "tập (số)" style punctuation never dangles; groups

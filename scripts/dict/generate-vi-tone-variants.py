@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Add the old-style tone placement of open oa/oe/uy syllables to the bundled Hunspell vi_VN.dic.
 
 Usage: python3 scripts/dict/generate-vi-tone-variants.py [--apply|--check] [--tree upstream/libreoffice]

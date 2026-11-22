@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows "Cập nhật ngay": the helper starts elevated from the office window before the office quits.
 
 The helper used to ask for administrator rights itself after the office had closed: Windows treats that as a background

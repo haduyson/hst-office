@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Run the real HST USB Token command and sign ODT with SoftHSM2 in both NSS modes.
 
 Run as a non-root user, on Xvfb, with python3-uno, softhsm2, opensc, libnss3-tools,

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """RIS tag tables shared by the RIS importer and exporter (RIS as written by Scopus, Web of Science, Google
 Scholar, Zotero, Mendeley, EndNote and doi.org)."""
 

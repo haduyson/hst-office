@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Chèn trích dẫn (also edits the citation under the cursor) and Chèn lại trích dẫn (by typed number or from the
 list of sources the document cites). Each insertion and the refresh after it are one Undo step."""
 from . import citation_codes as codes

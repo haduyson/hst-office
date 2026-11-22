@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO side of scripts/perf/large-file-open.py: run with the office's own Python (it imports uno).
 
     python large_file_open_client.py <pipe name> <file> <hidden 0|1|cli> <save-to path or ->

@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-HST-Proprietary
+// Copyright (C) 2026 HASON TECH
 // In-memory registry standing in for the Win32 API, enough for configmgr/source/winreg.cxx.
 #pragma once
 #include <algorithm>

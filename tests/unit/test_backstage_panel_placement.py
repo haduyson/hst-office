@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-backstage-panel-beside-banner.patch: the File panel takes the window's width below the document tab strip.
 
 sfx2/source/backstage/hstbackstageplacement.hxx is compiled with a small driver. The case that cut the Print page:

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-module-window-groups.patch: HST Writer/Sheets/Slides/PDF windows of their own, tab detach.
 
 Source-level checks of the patch (the behaviour is checked under Xvfb by tests/runtime/check-module-windows.py):

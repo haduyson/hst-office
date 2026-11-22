@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the window rules of HST Office document tabs on a real GUI build (fresh profile, existing X display).
 
 Usage: python3 tests/runtime/check-module-windows.py [--instdir upstream/libreoffice/instdir]

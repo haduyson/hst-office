@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Patched-tree update for local Windows builds (scripts/windows/hst4-build.ps1), run inside Cygwin bash.
 #   hst4-tree.sh [--clean] [--verify]
 # Env: HST_ROOT (Cygwin path of the build root), HST_REPO, HST_DL (as for trial-build.sh).

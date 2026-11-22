@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Large-file open times of a local build (build queue output) on this Linux machine or on a Windows test PC.
 #   large-file-open-local.sh linux   <.deb | queue job id> <out-dir> [harness options]
 #   large-file-open-local.sh <host>  <.msi | queue job id> <out-dir> [harness options]   (host: hst4, hst5)

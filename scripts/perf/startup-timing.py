@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Time office start-ups on this machine: launch to splash, splash gone, first Start Center or document window.
 
 Runs with any Python 3.9+ (the runner's); quits each start through scripts/perf/startup-quit-office.py run with the

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Home tab of hst-ribbon-home-fit.patch: the "Công cụ" group, Find & Replace in the paragraph group, the feature
 search in the "Trang đầu" menu, Sheets' stacked Styles buttons and the style gallery's narrow minimum.
 

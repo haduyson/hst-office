@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # PNG of one window through PrintWindow with full content (works in a disconnected session too, where screen copies
 # fail). Usage: coat-window-shot.ps1 -Hwnd <decimal handle> -Path <file.png>
 param([Parameter(Mandatory = $true)][long]$Hwnd, [Parameter(Mandatory = $true)][string]$Path)

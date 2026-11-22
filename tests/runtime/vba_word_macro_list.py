@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A new .docm names its macros in word/vbaData.xml, which is what Word's Macros dialog lists."""
 import os
 import re

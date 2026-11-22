@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the window mode of each application (tabs or separate windows) on a real GUI build (Xvfb).
 
 Usage: python3 tests/runtime/check-document-window-modes.py [--instdir upstream/libreoffice/instdir]

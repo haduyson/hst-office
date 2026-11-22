@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """List boxes of the citation dialogs: fill them, read their (multiple) selection, filter sources by typed words.
 Filtering is pure Python; the list helpers take a dialogs.Dialog."""
 from .vietnamese_text import remove_diacritics

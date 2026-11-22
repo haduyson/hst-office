@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # PNG of a screen rectangle as the user sees it (the system's rounded corners, outline and shadow included; needs
 # an active console session). Usage: coat-screen-shot.ps1 -Left <x> -Top <y> -Width <w> -Height <h> -Path <file.png>
 param([Parameter(Mandatory = $true)][int]$Left, [Parameter(Mandatory = $true)][int]$Top,

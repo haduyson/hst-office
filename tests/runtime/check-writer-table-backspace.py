@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Writer: Backspace with a whole table selected deletes the table, as in Word (real key events in a visible office).
 
 hst-writer-backspace-deletes-selected-table.patch. Each case opens its own copy of a small document (a paragraph, a

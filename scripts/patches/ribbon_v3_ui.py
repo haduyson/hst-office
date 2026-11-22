@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The v3 ribbon layout applied to the four notebookbar.ui files (helpers of generate-ribbon-v3-ui.py).
 
 Every group of data/ribbon/ribbon-v3.json names its commands in their order and their kind (L large, M small with its

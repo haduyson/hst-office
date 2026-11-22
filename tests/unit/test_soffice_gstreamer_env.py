@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """scripts/linux/soffice_gstreamer_env.py: program/soffice ranks GStreamer's dfbvideosink NONE without losing the
 user's GST_PLUGIN_FEATURE_RANK (the snippet runs in a real /bin/sh)."""
 import os

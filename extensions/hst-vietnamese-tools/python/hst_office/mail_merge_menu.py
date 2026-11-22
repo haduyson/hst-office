@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The ▾ menus of the Gửi thư tab: a PopupMenuController (Controller.xcu "PopupMenu") for the commands whose ribbon
 buttons carry GenericPopupToolbarController (Controller.xcu "ToolBar"). Each item runs an
 org.hst.office.mailmerge: command (mail_merge_handler.py); "Chèn trường trộn ▾" lists the columns of the document's

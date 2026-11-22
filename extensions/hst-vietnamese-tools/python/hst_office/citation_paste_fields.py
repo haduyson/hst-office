@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fields after the authors and year of a pasted reference: title (quoted or first segment), container, volume
 (issue), pages, publisher and place ("Nxb X, Hà Nội" or "Place: Publisher"), thesis wording, editors, edition,
 translator and original year; then the most likely CSL type. Used by citation_paste_parse. Pure Python (no uno)."""

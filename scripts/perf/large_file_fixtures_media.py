@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Synthetic pictures and video for the sized office fixtures (large_file_fixtures_sized.py). Needs Pillow; the video
 needs ffmpeg on PATH. Nothing here reads a user file: every picture is generated noise."""
 import io

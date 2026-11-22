@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Windows: a session the system ended (log off, shut down, restart) is not a crash.
 
 Run with the office's Python in the test user's own session (windows-own-session-task.ps1):

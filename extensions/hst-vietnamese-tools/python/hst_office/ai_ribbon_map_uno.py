@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """UNO side of the ribbon command map (ai_ribbon_map): which notebookbar.ui the app loads, its gettext catalogue in the
 UI language and the command labels of theUICommandDescription. Main thread only."""
 import gettext

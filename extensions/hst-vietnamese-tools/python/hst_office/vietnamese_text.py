@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese text helpers for BODAU, TACHHO, TACHTEN and the "Sắp xếp theo tên" command. Pure Python (no uno).
 
 `sort_key` follows the Vietnamese alphabet (a ă â b c d đ e ê … o ô ơ … u ư …) and compares tones after the letters,

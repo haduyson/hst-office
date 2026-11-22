@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check the layout of the four HST ribbons (owner-locked 1.0.3 v3 design).
 
 Usage: scripts/patches/check-ribbon-layout.py --tree DIR      (a tree with the whole series applied)

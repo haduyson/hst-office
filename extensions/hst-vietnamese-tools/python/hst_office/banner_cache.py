@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Verified profile cache with atomic publication and a cross-process 24-hour attempt stamp."""
 import os
 from pathlib import Path

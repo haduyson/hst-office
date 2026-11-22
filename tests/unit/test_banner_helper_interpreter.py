@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Banner/citation/error-report helpers: the office's bundled Python first (no system Python needed), one helper
 process at a time, and the feed worker does nothing before the office's start-up work is over."""
 import os

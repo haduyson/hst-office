@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: Bắt đầu trộn thư ▾ (Thư, Phong bì, Nhãn, Thư điện tử, Văn bản thường), Khối địa chỉ, Dòng chào,
 Quy tắc ▾ (Nếu…Thì…Khác, Bỏ qua bản ghi nếu, Hỏi, Đặt số thứ tự) and Chèn trường trộn ▾ <column>.
 The block, the greeting and the rules are computed columns (mail_merge_rules.py): their settings go to the document,

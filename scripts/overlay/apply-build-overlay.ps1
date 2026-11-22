@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 <#
 TEST ONLY: copy a module-build patch overlay (scripts/windows/hst4-build.ps1 -Modules) over an administrative
 install image of a reference HST Office MSI. Never use the result as a release or on a user's machine.

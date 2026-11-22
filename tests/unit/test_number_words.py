@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese and English number words (DOCSO, DOCTIEN, the dialog and the Writer command)."""
 import unittest
 from decimal import Decimal

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The macOS updater script run with stubbed tools: verified swap, administrator path, read-only bundles, relaunch."""
 from pathlib import Path
 import shlex

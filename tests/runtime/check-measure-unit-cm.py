@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that centimetres are the default measurement unit on a real HST Office build (hst-measure-unit-cm.patch).
 
 Usage: <instdir>/program/python tests/runtime/check-measure-unit-cm.py --instdir <instdir> [--out DIR]

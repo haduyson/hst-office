@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of the ribbon UX rework generators (scripts/patches/generate-ribbon-ux-*.py): the XML helpers
 (ribbon_ux_lib_core.py) and the suppression and .po helpers (ribbon_ux_lib_files.py) under one name."""
 import os

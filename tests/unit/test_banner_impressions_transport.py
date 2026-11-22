@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The display report's POST through the private helper: headers, no redirects, status as the answer, deadline."""
 import json
 import unittest

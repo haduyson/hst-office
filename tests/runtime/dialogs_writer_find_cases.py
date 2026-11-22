@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Find and Replace has Word's tabs: Find, Replace and, in Writer, Go To. Searching stays as it was, and the dialog
 stays non-modal; Sheets and Slides share it. Used by check-dialogs-writer.py."""
 from hst_dialog_uitest import click, props, select_entry, select_tab, state, type_value, visible, writer_edit

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Anonymous install ID sent with the update check, so HASON TECH can count the machines that use HST Office
 (downloads do not: every update is a new download). docs/PRIVACY.md says what is sent and how to turn it off.
 

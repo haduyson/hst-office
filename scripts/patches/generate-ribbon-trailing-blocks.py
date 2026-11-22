@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate the .ui part of the patch that trims the ribbon tabs' trailing blocks and puts the contextual tabs last.
 
 Usage: scripts/patches/generate-ribbon-trailing-blocks.py --tree DIR [--out FILE] [--check]

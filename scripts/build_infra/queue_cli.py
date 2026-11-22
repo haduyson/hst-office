@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST Office local build queue: agents submit builds themselves, a dispatcher runs them on the build slots.
 
   build-queue.sh submit --platform linux|windows --ref <branch|sha> [--priority N] [--no-package] [--modules a,b]

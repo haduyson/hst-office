@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Saving over an existing file replaces it through a temporary file (hst-save-atomic-replace.patch), Linux and macOS.
 
 Run with the office's own Python (it needs pyuno), headless, no display:

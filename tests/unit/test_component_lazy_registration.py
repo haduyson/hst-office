@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The extension's UNO component registers every HST service without importing its module.
 
 The office loads python/hst_office_component.py at OnStartApp, while the splash screen is up: whatever that file

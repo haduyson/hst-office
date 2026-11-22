@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Key input, key tips and the command / shortcut matrix of check-keytips-office-parity.py."""
 import os
 import sys

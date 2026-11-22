@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Part of check-vba-editor.py: a Basic macro runs only when the user asks (HST Slides and HST Draw).
 
 - Run from the editor: "Macro VBA" opens Module1 with the cursor in Sub XinChao; F5 (the editor's

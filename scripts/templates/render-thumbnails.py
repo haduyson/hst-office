@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Developer tool: real thumbnails of the templates, rendered by a built office. The PNG files are committed.
 
 Usage (as the build user, under the shared build lock):

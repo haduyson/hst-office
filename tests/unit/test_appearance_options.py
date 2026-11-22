@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Tùy chọn ▸ HST Office ▸ Giao diện: the icon style choice and the SymbolStyle values it reads and writes."""
 import os
 import sys

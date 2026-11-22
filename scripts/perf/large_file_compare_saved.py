@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Compare two saved office files part by part (the same document saved by two office builds).
 
     python3 large_file_compare_saved.py A.xlsx B.xlsx

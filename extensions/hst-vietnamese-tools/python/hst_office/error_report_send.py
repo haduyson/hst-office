@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Send one error report and turn the answer into an outcome the dialog can show.
 
 Called on a worker thread only after the user pressed "Gửi" in the dialog; nothing here runs on its own. The POST

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check: a VBA project read from a real Office file is written back with every stream unchanged.
 
 Usage: python3 tests/runtime/check-vba-keep-word-project.py [--instdir upstream/libreoffice/instdir]

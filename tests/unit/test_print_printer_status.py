@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Printer state dots on the Print page of the File panel (hst-print-printer-status.patch). Read from the patch."""
 import os
 import re

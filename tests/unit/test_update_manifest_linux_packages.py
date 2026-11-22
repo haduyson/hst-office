@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Manifest generator and signer with the .rpm and AppImage assets: latest-3.json lists them, latest-2.json and
 latest.json (read by installed 1.0.x clients) never do, and the signer refuses a schema that does not match the name."""
 import contextlib

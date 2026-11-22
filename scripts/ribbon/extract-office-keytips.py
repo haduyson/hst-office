@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ground truth of the familiar office suite's KeyTips and shortcuts, from captures on the Windows test PC.
 
 Usage: python3 scripts/ribbon/extract-office-keytips.py RAW_DIR [WORD_KEYS_TSV] [--out data/ribbon/office-keytips-reference.json]

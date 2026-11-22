@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Words stay apart ("dính chữ"): Vietnamese text keeps visible gaps between words.
 
 Usage: python3 tests/runtime/check-word-spacing.py [--instdir upstream/libreoffice/instdir]

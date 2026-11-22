@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Insert converted formulas as Math objects in a Writer document, save as .docx (OMML), reopen,
 # and check that every formula comes back as a Math object with the same letters/digits/=/+.
 import sys, os, json, re, html, unicodedata, collections, zipfile, uno

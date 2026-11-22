@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The Sheets conditional formatting dropdown (hst-calc-conditional-format-menu.patch), read from the patch.
 
 Owner request of 2026-11-13: the Home button "Định dạng có điều kiện ▾" and Format ▸ Conditional show the

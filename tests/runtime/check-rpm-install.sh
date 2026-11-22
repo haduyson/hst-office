@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Install-lifecycle test of the HST Office .rpm in a clean, auto-removed container:
 # install (dnf / zypper, unsigned local file) -> metadata, launchers, MIME, icons -> open and save .docx/.xlsx with
 # Vietnamese text as a normal user -> GUI start under Xvfb -> optional distribution LibreOffice side by side ->

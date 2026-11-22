@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The ribbon in the HST frame coat (FrameCoat/Ribbon), before and after, on a real office: shots of the ribbon and
 the facts the coat must not change.
 

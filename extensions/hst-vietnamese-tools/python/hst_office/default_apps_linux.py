@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Linux default apps: `xdg-mime default vn.hasontech.hstoffice-<app>.desktop <types>` for the office document types
 the HST launchers declare, then a query to prove it was recorded (xdg-mime exits 0 when it cannot write)."""
 import configparser

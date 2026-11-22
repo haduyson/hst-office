@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # HST Office Linux .deb build on a GitHub-hosted runner (see .github/workflows/desktop-linux.yml).
 #   ci-build.sh --deps | --extract | --patch | --configure | --fetch | --build | --check-translations | --package |
 #               --rpm-appimage

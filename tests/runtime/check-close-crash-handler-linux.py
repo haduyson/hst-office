@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A crash while the configuration lock is held must not freeze the emergency save (owner report: the recovery dialog
 stayed on screen after OK and only the Task Manager ended the office).
 

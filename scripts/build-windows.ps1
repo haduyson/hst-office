@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Runner setup helpers for the Windows trial build (windows-2022). Build steps live in scripts/windows/trial-build.sh.
 #   pwsh -File scripts/build-windows.ps1 -Task Probe|FreeDisk|Cygwin|Tools [-Work D:\hst] [-CygwinRoot C:\cygwin64]
 # -CygwinRoot lets a local build PC (scripts/windows/hst4-setup.ps1) install the same package set elsewhere.

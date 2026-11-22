@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Windows smoke: the shortcuts HST Writer, HST Sheets and HST Slides of hst-msi-app-desktop-shortcuts.patch and
 # HST PDF of hst-pdf-launchers.patch.
 #   -Expect installed    one of each on the desktop and in the Start menu, each opening its own app

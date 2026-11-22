@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generate the collapse ladders of every ribbon tab from group priorities (hst-ribbon-scale-ladders-ux.patch).
 
 Usage: scripts/patches/generate-ribbon-priorities.py --tree DIR [--data data/ribbon/scaling-priorities.json]

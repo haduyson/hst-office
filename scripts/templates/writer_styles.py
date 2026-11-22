@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Writer styles of a template: named paragraph styles per role and the one page style both creation paths use."""
 from .odf import document, fonts, node, paragraph, style, xml
 

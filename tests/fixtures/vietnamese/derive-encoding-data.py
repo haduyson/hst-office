@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Rebuild data/vietnamese/encoding-maps.json, provenance.json and the golden
 encoding vectors from third-party sources, WITHOUT using the converter under test.
 

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The extension's dialogs that are inside their modal loop (dialogs.Dialog.execute, the welcome dialog).
 
 A modal dialog keeps the frame it belongs to from closing, so Desktop.terminate() fails at once while one is open.

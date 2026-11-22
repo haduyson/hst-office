@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The editing helpers of the Slides/Draw ribbon rework (generate-ribbon-ux-impress-draw.py): strings that need
 Vietnamese, ribbon-only labels, buttons, menus and menu buttons."""
 import xml.etree.ElementTree as ET

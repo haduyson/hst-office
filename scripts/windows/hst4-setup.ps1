@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 <#
 One-time toolchain for a local Windows build PC (HST4) that builds the same MSI as
 .github/workflows/desktop-windows.yml. Run elevated (kiemtra over SSH, or detached with hst4-detach.ps1):

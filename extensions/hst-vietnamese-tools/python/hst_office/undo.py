@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One-step undo helpers for Writer and Calc (uno objects are passed in; `uno` is imported lazily).
 
 `undo_step` wraps a mutation in XUndoManager enter/leaveUndoContext so the whole wizard action is one Undo.

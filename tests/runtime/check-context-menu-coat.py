@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The frame's coat of popup and context menus (FrameCoat/Menus): shots of the menus a user opens most, a pixel
 check of the menu's outline, and the menu-open latency with the part switched off and on.
 

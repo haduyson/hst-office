@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Golden outputs of the citation styles: every style (and preset) formats the shared sample references and the
 result must equal tests/fixtures/citations/golden/<case>.txt. Notation: *italic*, **bold**, ^superscript^.
 

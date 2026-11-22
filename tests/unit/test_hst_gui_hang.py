@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GUI check hang watchdog: the gtk3 clipboard deadlock is recognised from all-thread gdb stacks (trimmed from a real
 stalled check-nd30-insertion-point run under CPU load), other waits are not, and a hang leaves stacks and a FAIL line
 instead of a silent stall."""

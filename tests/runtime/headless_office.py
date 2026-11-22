@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A headless HST Office for portable UNO checks (Linux, Windows, macOS): fresh profile, fixed port, stop what it started.
 
 Usage: office = Office(path_to_soffice, workdir, port); doc = office.load(url); ...; office.stop()

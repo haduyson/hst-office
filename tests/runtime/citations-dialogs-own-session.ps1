@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Run the citation dialog check (check-citations-dialogs.py --windows) in the CALLING user's own interactive
 # session, connected or not, through a temporary scheduled task. It never touches the console user's session.
 # SSH runs in session 0, which has no desktop; the task needs the tester to have a session (a disconnected one is fine).

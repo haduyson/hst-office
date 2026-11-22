@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fresh soffice profile with a chosen UI language and locale, and the UNO connection to it.
 
 Used by check-sheets-excel-formula-conventions.py: the profile stores UILocale and ooSetupSystemLocale before the

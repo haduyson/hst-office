@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """OS input and screen capture, executed with the tooling Python, never pyuno's ABI."""
 import ctypes
 import json

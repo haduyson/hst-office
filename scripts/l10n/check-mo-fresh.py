@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fail when a built LibreOffice tree ships message catalogues (.mo) that do not match its translations (.po).
 
   check-mo-fresh.py --tree <lo> [--lang vi] [--msgfmt msgfmt] [--msguniq msguniq]

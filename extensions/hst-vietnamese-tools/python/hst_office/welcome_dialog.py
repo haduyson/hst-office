@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Native modal "HST Office chào đón bạn" dialog. Links open the system browser only when the user clicks them.
 
 Introductory content: always Vietnamese (welcome_job loads the "vi" strings in every UI language). Sections:

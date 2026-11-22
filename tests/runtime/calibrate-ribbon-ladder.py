@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Calibrates the ladder classification (ribbon_mockup_geometry) against the P0 baseline on Linux (gtk3, Xvfb).
 
 Usage: python3 tests/runtime/calibrate-ribbon-ladder.py --instdir DIR --baseline reference/p0-widths-baseline-linux.json

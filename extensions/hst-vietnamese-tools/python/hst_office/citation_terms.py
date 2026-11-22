@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Words that citation styles print around the data ("tr.", "pp.", "Nxb", "et al."), in Vietnamese and English.
 
 HST wrote these from the style manuals and Vietnamese university guides; nothing is copied from the CSL locale files

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """After an abnormal exit, ask once at the next start whether to send a crash report (Jobs.xcu, two events).
 
 The signal is the office's own recovery state (/org.openoffice.Office.Recovery), the same test the office uses to

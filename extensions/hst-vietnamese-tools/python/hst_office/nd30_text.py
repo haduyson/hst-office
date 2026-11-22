@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Direct paragraph/character formatting helpers shared by the ND30 Writer renderer (uno objects passed in)."""
 FONT = "Times New Roman"
 ADJUST = {"left": 0, "right": 1, "justify": 2, "center": 3}  # com.sun.star.style.ParagraphAdjust

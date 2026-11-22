@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The v3 rules of one ribbon layout dump: one JSON file per tab page and window width, written by the real app.
 
 Rects are device px relative to the ribbon body's top-left; logical px = device px / scale. caption_needed is

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Write the regression fixtures and their sandbox jobs. Usage: make_regression_fixtures.py OUTDIR JOBS.json"""
 import json
 import os

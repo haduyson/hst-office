@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Party documents (pure logic), a profile of its own: Quy định 399-QĐ/TW and Hướng dẫn 05-HD/VPTW (2026), Phụ lục 1-3.
 
 They share nothing with the state forms but the renderer: heading "ĐẢNG CỘNG SẢN VIỆT NAM", a star under the agency, number

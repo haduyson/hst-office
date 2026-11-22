@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The dialogs of the HST coat's tier 3 (dialog layout rework): candidates, the ranked list and its batches.
 
 Shared by tests/runtime/hst_dialog_layout_check.py (opens each dialog and measures it) and

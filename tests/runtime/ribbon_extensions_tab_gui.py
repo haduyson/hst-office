@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """GUI checks of the authored Extensions tab ("Phần mở rộng"), used by check-ribbon-hst-commands.py.
 
 The expected layout is the one the unit test tests/unit/test_ribbon_extensions_tab.py holds for the patch.

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Check that the HASON TECH banner on the ribbon is exactly its artwork: no letterbox, no filler band, no padding.
 
 Usage: python3 tests/runtime/check-banner-fit.py --instdir DIR [--display :171] [--out DIR] [--shots DIR]

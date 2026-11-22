@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The GUI harness drives only its own office. When another office already holds a check's UNO port (the same check
 running in parallel with its deterministic port), this office's acceptor cannot bind and every UNO call would go to
 the other office: its documents, its frames, and finally its termination."""

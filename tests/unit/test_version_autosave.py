@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """"Phiên bản trước" with AutoSave ("Tự động lưu"): an AutoSave keeps a copy only for the first AutoSave of an opening
 or when the newest copy is older than 30 minutes; a save by the user always keeps one. While AutoSave would keep
 nothing, OnModifyChanged copies nothing either."""

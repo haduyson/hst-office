@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Shared visual nouns of the stage 2 ribbon icon recipes."""
 from drawing import add, p, r, c, transform, arrow, grid, page, slide, plus, cross, check, badge, GLYPHS
 

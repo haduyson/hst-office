@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """MSI table reading and the forced reinstall over the 1.0.0 betas 1-4 (hst-msi-replace-old-betas.patch), for
 check-msi-upgrade.py.
 

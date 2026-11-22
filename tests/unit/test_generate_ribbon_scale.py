@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ribbon ladder generator (scripts/patches/generate-ribbon-scale.py): validation and stable output."""
 import copy
 import importlib.util

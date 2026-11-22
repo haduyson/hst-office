@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Generated Vietnamese-like words for the synthetic large-file fixtures (no user data)."""
 
 WORDS = ("công ty", "hóa đơn", "khách hàng", "số lượng", "đơn giá", "thành tiền", "ngày", "tháng", "năm", "báo cáo",

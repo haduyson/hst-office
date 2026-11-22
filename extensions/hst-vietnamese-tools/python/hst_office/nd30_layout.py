@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One layout for both creation paths (pure logic, no `uno`): the installed .ott templates and the wizard render the
 blocks built here, so they cannot drift apart. Blocks are paragraphs and grids (borderless or ruled tables).
 

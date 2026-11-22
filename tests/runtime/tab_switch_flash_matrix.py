@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Scenarios and measurement of check-windows-tab-switch-flash.py: switches between document tabs and windows of
 every application, sampled with screen_patches_win.
 

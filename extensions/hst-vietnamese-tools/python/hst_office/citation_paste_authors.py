@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Author lists of pasted references, in the shapes Vietnamese theses and the common styles print them:
 "Nguyễn Văn An, Trần Thị Bình", "Smith, J. A., & Doe, B.", "Fauci AS, Lane HC", "J. K. Author and A. B. Other",
 "Goedkoop J.B., Grioni M.", "SMITH, John and DOE, Jane". "và cộng sự", "et al." and similar endings are dropped.

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Cells and formulas typed by check-sheets-excel-formula-conventions.py, with the display expected.
 
 Formulas are typed with {s} = argument separator, {d} = decimal separator and {sheet} = first sheet name of

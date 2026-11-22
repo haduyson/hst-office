@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The office never runs the upstream OpenCL self-test at start-up (error reports HSTO-000010/11).
 
 On Windows a driver fault inside Desktop::CheckOpenCLCompute ended the first start of a new profile with the restart

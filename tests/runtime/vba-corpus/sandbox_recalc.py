@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Compare the values Excel stored with a hard recalculation by HST.
 
 For .xlsm/.xlsb the stored value is read from the file itself where it can be (sheet XML), so the comparison does not depend on what HST

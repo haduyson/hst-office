@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A minimal org.gnome.SessionManager for the session-end checks: the office's gtk3 frames register with it, then a
 log out is played as GNOME does it (QueryEndSession, then EndSession). Run as a separate process with the host's
 python3 and Gio on a private session bus (check-session-end-gnome.py starts it):

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Fixtures of check-pdf-signature-box.py: synthetic images and PDF, and a disposable certificate.
 
 Nothing real: the images are a blue scribble and a red round seal written as PNG in pure Python, the PDF a

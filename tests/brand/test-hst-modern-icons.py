@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The colourful HST style: delivery contract, recolouring and classic substitution."""
 import importlib.util
 from pathlib import Path

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Another application's clipboard on an X display: owns CLIPBOARD with a text until it is killed.
 
 Used by check-gtk-clipboard-paste-state.py as "a text editor or browser on the same display".

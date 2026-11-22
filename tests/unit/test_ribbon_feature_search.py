@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Feature search of the ribbon tab row (hst-ribbon-feature-search.patch), read from the patch itself.
 
 The interface the search box includes, Alt+Q, the "Find … in the document" row and its translation, and the Home

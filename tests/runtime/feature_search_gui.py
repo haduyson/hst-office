@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of check-feature-search.py: the HST menu, the search popup and the search box of the ribbon tab row."""
 import os
 import subprocess

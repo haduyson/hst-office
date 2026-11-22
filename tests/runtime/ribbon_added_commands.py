@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Commands the 1.0.0 ribbon content adds (btnHst* items of notebookbar.ui), for check-ribbon-tabs.py."""
 import os
 import re

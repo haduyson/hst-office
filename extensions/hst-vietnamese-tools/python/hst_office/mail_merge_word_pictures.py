@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư, Word fields: the date picture switch \\@ and the format switch \\* with Word's rules (ECMA-376 17.16.4).
 Pure Python. The numeric picture \\# is in mail_merge_word_numbers.
 

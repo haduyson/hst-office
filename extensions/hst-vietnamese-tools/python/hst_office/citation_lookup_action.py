@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The two online buttons of the source form (UNO glue around citation_lookup); nothing else calls the network.
 
 "Tra cứu" sends the identifier the user typed (DOI, ISBN, PubMed ID or arXiv ID) to the matching service;

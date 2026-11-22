@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """CSL-JSON import: an array of items, one item, or an HST library file ({"schemaVersion", "items"}). Zotero,
 Mendeley and doi.org write this format; it is also the format HST stores, so nothing is converted, only validated
 by citation_model.normalize_item. Pure Python (no uno)."""

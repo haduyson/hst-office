@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # shellcheck shell=bash
 # Shared helpers for the macOS signing scripts (sourced by adhoc-sign.sh and sign-notarize.sh).
 

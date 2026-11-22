@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Contextual ribbon tabs added for 1.0.0, read from their patches: Sheets' pivot table tab
 (hst-ribbon-pivot-context.patch) and Writer's header and footer tab (hst-ribbon-header-footer-tab.patch).
 

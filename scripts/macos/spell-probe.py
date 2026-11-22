@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Ask each Vietnamese spell checker of a macOS HST Office which words it accepts (run with the bundled Python).
 
   spell-probe.py <out-dir>

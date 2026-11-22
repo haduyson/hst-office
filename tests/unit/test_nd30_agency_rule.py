@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Length of the rule under the agency name (ND30 Phụ lục I, II.2b: 1/3 to 1/2 of the line, centred), as chosen in the
 wizard: fractions of the longest line of a multi-line name, the line above, a typed length kept inside the cell, the
 note when it leaves the ND30 range, the remembered choice, and the wizard row (wizard tests use the fake dialog of

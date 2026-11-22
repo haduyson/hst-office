@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """scripts/dict/generate-vi-tone-variants.py adds the other tone placement of open oa/oe/uy syllables, nothing else."""
 import importlib.util
 import os

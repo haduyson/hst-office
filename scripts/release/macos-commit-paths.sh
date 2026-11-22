@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Decide whether macOS installers may come from a later commit than the release commit.
 #   git diff --name-only <release commit> <macos commit> | macos-commit-paths.sh
 # Reads changed paths on stdin. Succeeds when every path is outside what the Windows and Linux

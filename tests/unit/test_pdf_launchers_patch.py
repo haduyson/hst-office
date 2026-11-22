@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-pdf-launchers.patch: HST PDF started from its Linux launcher or Windows shortcuts asks for a PDF file
 (org.hst.office.vi.PdfOpen, tests/unit/test_pdf_open.py) instead of showing the Start Center, with HST PDF's icon.
 

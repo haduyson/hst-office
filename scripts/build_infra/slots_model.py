@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Admission model of the Linux build slots: configuration, memory budget per -j and the water-filling
 of jobs between slots (see slots_cli for the rules).
 """

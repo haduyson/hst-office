@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-document-tab-switch-no-flash.patch: a document tab switch paints the shown window before the previous one hides.
 
 A tab switch shows one top-level window and hides another. vcl paints a newly shown window later (paint idle) and

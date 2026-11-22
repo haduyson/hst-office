@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Vietnamese user interface by default on every system: the configuration default and the Windows installer rule.
 
 Read from the patches themselves (the new side of each hunk), so no LibreOffice tree is needed:

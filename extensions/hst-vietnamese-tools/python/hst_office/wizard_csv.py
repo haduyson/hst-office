@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """CSV import dialog for Calc: file, strict-UTF-8 decode, delimiter choice, cell-type choice, preview."""
 import re
 

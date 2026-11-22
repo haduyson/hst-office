@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """fill-update-manifest-hashes.py: the 1.0.2 feed draft becomes signed-ready feeds only with the real installers."""
 import hashlib
 import importlib.util

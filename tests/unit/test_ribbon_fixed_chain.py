@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The fixed collapse chain (hst-ribbon-mockup-chain.patch) gives Writer's Home and Insert the states of the 1.0.2
 mockup, except where the reference suite keeps labels the mockup drops (owner decision 16/11/2026 00:45):
 hst::ribbon::select() of HstRibbonScaling.hxx, fed with the mockup's own group widths

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Runtime check of the administrator lock of the update check through a share/registry .xcd (Linux).
 
 Usage: python3 tests/runtime/check-update-lock.py [--instdir upstream/libreoffice/instdir]

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Writer: centre a picture like a word processor, and select lines from the left margin (GUI run, Linux).
 
 Usage: python3 tests/runtime/check-image-align-margin-select.py --instdir DIR --docx FILE --out DIR

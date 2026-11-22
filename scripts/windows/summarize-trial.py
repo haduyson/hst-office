@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Collect trial-build metrics: phase timings, compile progress, disk, log tails.
 
 Usage: python -I scripts/windows/summarize-trial.py --work C:/hst --out C:/hst/artifacts

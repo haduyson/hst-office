@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 # Ad-hoc sign a finished HST Office app bundle, inside-out, and verify it strictly.
 #   adhoc-sign.sh <path/HST Office.app>
 # Why: an upstream release build without a signing identity leaves only the linker's ad-hoc

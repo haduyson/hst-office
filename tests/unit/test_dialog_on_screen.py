@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """A modal HST dialog must never run off screen (macOS freeze report, HST Office 1.0.2).
 
 HST > "Văn bản hành chính" from a Sheets tab opened a new Writer tab and the ND 30 wizard inside the same menu command.

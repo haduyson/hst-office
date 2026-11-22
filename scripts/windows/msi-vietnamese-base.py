@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Make the Windows installer (MSI) text Vietnamese whatever the Windows display language.
 
   python3 scripts/windows/msi-vietnamese-base.py --tree <libreoffice-src> [--check]

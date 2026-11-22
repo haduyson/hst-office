@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Every large button of the four Tabbed ribbons shows a 24 px image (owner rule; Paste alone stays larger).
 
 Usage: scripts/patches/check-ribbon-large-icons.py --tree DIR   (a LibreOffice tree with the whole series applied)

@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One-line edits grow to the height the platform draws them, within the room below them (dialog_edit_heights).
 
 On macOS a native edit box is 29 px high (21 px frame and a 4 px focus ring above and below, text area from 6 px below

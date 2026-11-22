@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Trộn thư: read the recipient list the user chose (.xlsx, .xls, .ods, .csv) into a mail_merge_table.Table.
 
 Spreadsheets open hidden in Sheets (read-only, no macros); the first filled row of the sheet holds the headers.

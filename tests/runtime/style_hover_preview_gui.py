@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Office helpers of check-style-hover-preview.py: window placement, the document's state, the gallery item under
 the pointer, hovering, and the flat ODF body and direct paragraph values compared before and after a hover."""
 import os

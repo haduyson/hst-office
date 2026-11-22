@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Helpers of check-vietnamese-utilities.py: dispatch a command that opens a modal dialog, find the dialog window,
 send keys to it, take screenshots, open the classic HST menu through AT-SPI."""
 import os

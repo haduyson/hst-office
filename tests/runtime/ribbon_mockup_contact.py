@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Contact sheet for the owner gate: the mockup beside real screenshots, stacked, labelled, with a red frame where a
 measured item is out of tolerance.
 

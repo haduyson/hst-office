@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The authoring gate covers committed, edited and newly created Python, including tests/scripts."""
 import contextlib
 import importlib.util

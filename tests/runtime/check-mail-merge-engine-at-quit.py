@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Mail merge engine still held by a UNO client when the office quits: the office must exit cleanly (Linux, headless).
 
 com.sun.star.text.MailMerge loads its DocumentURL as a hidden document and closes it when the engine is destroyed.

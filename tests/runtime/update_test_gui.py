@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Window helpers of the update runtime checks (check-update-notify.py, check-update-install.py and the checks that
 load them): waiting, finding and clicking the update dialogs, screenshots, and the ports of a run."""
 import os

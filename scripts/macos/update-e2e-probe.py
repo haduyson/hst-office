@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Drive "Cập nhật ngay" end to end inside a GUI HST Office on macOS (evidence probe, CI only).
 
 update-e2e-probe.py --app <bundle> --profile <dir> --out <json> --pipe <name> [--code <python dir>] [--pretend R]

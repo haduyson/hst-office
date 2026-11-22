@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Printer state dots on the Print page (hst-print-printer-status.patch) in a visible office (Linux X display, gen
 plugin: the UITest service sees the VCL widgets).
 

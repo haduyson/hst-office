@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """One-line edits of a dialogs.Dialog as high as the platform draws them, within the room below them.
 
 A fixed AppFont height is not enough everywhere: macOS draws a native edit box with a fixed 29 px frame whose text area

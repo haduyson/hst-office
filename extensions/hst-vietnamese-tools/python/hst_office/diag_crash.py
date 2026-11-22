@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Crash capture: did the last session end without closing, and what did the office or the OS record about it.
 
 A session marker (session.json in the diag_log directory) is written at OnStartApp and removed at OnCloseApp; a

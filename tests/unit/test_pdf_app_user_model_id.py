@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """HST PDF windows and .pdf files carry HST PDF's own taskbar identity (hst-pdf-app-user-model-id.patch)."""
 import os
 import re

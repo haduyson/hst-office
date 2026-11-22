@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Where the macOS app runs, where the updater installs, and the copy running behind a progress message (no office)."""
 import os
 import tempfile

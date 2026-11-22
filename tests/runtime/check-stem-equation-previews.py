@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Equation previews (MathType-style OLE objects) in Word documents: Vietnamese text and PDF export.
 
 Usage: python3 tests/runtime/check-stem-equation-previews.py [--instdir upstream/libreoffice/instdir]

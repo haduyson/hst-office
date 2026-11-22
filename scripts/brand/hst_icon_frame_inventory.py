@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Inventory of the HST frame elements that show an icon: what each draws today and who draws it.
 
 Frame elements are the File tab (backstage) navigation and actions, the sidebar tab bar and deck

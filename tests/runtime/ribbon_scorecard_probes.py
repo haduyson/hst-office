@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Painting and gallery probes of the ribbon scorecard's live part, on the Home tab at the probe width."""
 import os
 import sys

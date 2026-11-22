@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """KeyTips and shortcuts of the familiar office suite on a real GUI (gtk3, vi_VN): the key matrix of 1.0.2.
 
 Usage: python3 tests/runtime/check-keytips-office-parity.py [--instdir DIR] [--display :73] [--shots DIR]

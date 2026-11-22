@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """The four privacy policy links on a real HST Office: About, Tùy chọn ▸ HST Office ▸ Cập nhật, Báo lỗi cho HASON
 TECH and the citation source form (Nguồn tài liệu mới). Each is clicked with the mouse and must hand exactly its URL
 (https://office.hasontech.vn/quyen-rieng-tu/ + utm_medium of its place) to the system browser; nothing may reach the

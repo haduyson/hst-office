@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """English UI strings name the apps Sheets and Slides (hst-app-names-en-us.patch), in step with the vi catalogue.
 
 Every English string the patch renames has a l10n/vi-overrides.jsonl row whose "msgid_new" is the new English text,

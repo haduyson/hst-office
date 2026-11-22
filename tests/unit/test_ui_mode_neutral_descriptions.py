@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """hst-ui-mode-neutral-descriptions.patch: the user interface picker never names a third-party office suite.
 
 The Tabbed and Tabbed Compact descriptions (cui/inc/uimode.hrc, shown in Tools > User Interface) compared the modes

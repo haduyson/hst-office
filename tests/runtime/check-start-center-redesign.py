@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Screenshots of the new Start Center (hst-start-center-redesign.patch) in one look: light or dark, 100 % or 125 %.
 
 Usage: python3 tests/runtime/check-start-center-redesign.py --instdir DIR --out DIR --display :396
