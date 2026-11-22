@@ -44,6 +44,16 @@ class SubmitTest(QueueTestCase):
         self.store.update(fresh["id"], state="failed")
         self.assertFalse(self.submit()[1])
 
+    def test_a_done_package_build_without_packages_is_not_reused(self):
+        job, _ = self.submit()
+        self.store.update(job["id"], state="done", output=[], finished=job["submitted"])
+        fresh, dup = self.submit()
+        self.assertFalse(dup)
+        self.assertNotEqual(fresh["id"], job["id"])
+        tests, _ = self.submit(tests=["CppunitTest_a"])   # a test run has no package: done without output is fine
+        self.store.update(tests["id"], state="done", output=[], finished=tests["submitted"])
+        self.assertEqual(self.submit(tests=["CppunitTest_a"])[0]["id"], tests["id"])
+
     def test_validation(self):
         with self.assertRaises(bq.QueueError):
             self.submit(platform="mac")
@@ -123,7 +133,7 @@ class RetentionTest(QueueTestCase):
         self.shas["feat/x"] = "f" * 40
         other, _ = self.submit(ref="feat/x")
         self.finish(other, finished=1)
-        bq.apply_retention(self.store, 3)
+        bq.apply_retention(self.store, dict(bq.DEFAULT_CONFIG, retention_per_branch=3), git=self.git, protected=set(), free=1000)
         deleted = {j["id"] for j in self.store.all() if j.get("output_deleted")}
         self.assertEqual(deleted, set(ids[:2]))
         for jid in ids[:2]:
@@ -157,6 +167,29 @@ class InfraFailureTest(QueueTestCase):
         linux.results[job["id"]] = ("failed", {"error": "local-build.sh exit 2"})
         bqd.tick(self.store, runners, bq)
         self.assertEqual(self.store.load(job["id"])["state"], "failed")
+
+    def test_a_modules_job_on_a_slot_without_a_full_build_is_requeued_without_charge(self):
+        job, _ = self.submit(modules=["sw"])
+        full, _ = self.submit(ref="feat/x")
+        linux = FakeRunner(["4"])
+        runners = {"linux": linux, "windows": FakeRunner([])}
+        bqd.tick(self.store, runners, bq)
+        self.assertEqual(linux.started, [job["id"]])
+        Path(job["log"]).write_text("local-build: slot 4 has no complete build yet; --modules needs one full build "
+                                    "in the slot first\n")
+        linux.results[job["id"]] = ("failed", {"error": "local-build.sh exit 1"})
+        linux.slots = []                                    # no slot free after the failure
+        bqd.tick(self.store, runners, bq)
+        state = self.store.load(job["id"])
+        self.assertEqual((state["state"], state.get("infra_retries", 0), state["incomplete_slot_retries"]),
+                         ("queued", 0, 1))
+        self.assertIn("not counted against the job", Path(job["log"]).read_text())
+        # A --modules job without a usable slot does not hold back the full build behind it.
+        linux.slots = ["4"]
+        linux.free_slot = lambda jobs, want=None, job=None: None if job.get("modules") else "4"
+        bqd.tick(self.store, runners, bq)
+        self.assertEqual(linux.started[-1], full["id"])
+        self.assertEqual(self.store.load(job["id"])["state"], "queued")
 
     def test_build_failure_is_not_requeued(self):
         job, _ = self.submit()

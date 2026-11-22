@@ -22,11 +22,12 @@ class LinuxRunner:
         return os.path.join(self.store.work_dir, job["id"] + ".rc")
 
     def busy_slots(self, jobs):
-        return [str(j["slot"]) for j in jobs if j["platform"] == "linux" and j["state"] == "running"]
+        return [str(j["slot"]) for j in jobs if j["platform"] == "linux" and j["state"] == "running"
+                and j.get("host", "local") in ("local", None)]
 
-    def free_slot(self, jobs, want):
+    def free_slot(self, jobs, want, job=None):
         cmd = [sys.executable, "-I", BUILD_SLOTS, "free-slot", "--want", str(want),
-               "--exclude", ",".join(self.busy_slots(jobs))]
+               "--exclude", ",".join(self.busy_slots(jobs)), *(["--complete"] if job and job.get("modules") else [])]
         done = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if done.returncode == 0 and done.stdout.strip().isdigit():
             return int(done.stdout.strip())
@@ -45,6 +46,12 @@ class LinuxRunner:
             cmd.append("--no-package")
         if job.get("tests"):
             cmd += ["--test", " ".join(job["tests"])]
+            if job["package"] and not job["modules"]:
+                cmd.append("--package")   # a train's Linux build: tests, then the packages
+            if job.get("test_name"):
+                cmd += ["--test-name", job["test_name"]]
+            if job.get("gdb"):
+                cmd.append("--gdb")
         cmd.append(job["sha"])
         rc = self.rc_path(job)
         if os.path.exists(rc):

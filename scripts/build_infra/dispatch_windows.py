@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 
+from . import slot_window
 from .dispatch_paths import HERE, WIN_HELPER, WIN_TOOLS, log, win_task_name
 
 # ---------------------------------------------------------------- windows
@@ -18,6 +19,9 @@ class WindowsRunner:
         self.cfg = cfg
         self.next_poll = {}
         self.probes = {}   # slot id -> (time, probe result): remote probes at most once a minute per slot
+        self.low_noted = {}   # slot id -> time a low-disk skip was logged
+        self.warned = {}      # host -> time of the last low-disk warning
+        self.window_noted = {}   # slot id -> time a closed-window skip (or a bad window) was logged
 
     def remote(self, host, action, *args, timeout=1200):
         cmd = [sys.executable, self.cfg["remote_py"], host, "ps", WIN_HELPER, "-Action", action, *args]
@@ -97,7 +101,7 @@ class WindowsRunner:
         used = {j.get("slot") for j in jobs if j["platform"] == "windows" and j["state"] == "running"}
         for slot in self.cfg["windows_slots"]:
             sid = f"{slot['host']}:{slot['root']}"
-            if sid in used or self.draining(slot["host"]):
+            if sid in used or self.draining(slot["host"]) or not self.window_open(slot):
                 continue
             cached = self.probes.get(sid)
             if cached and time.time() - cached[0] < self.cfg["windows_poll_seconds"]:
@@ -111,8 +115,115 @@ class WindowsRunner:
                 self.probes[sid] = (time.time(), probe)
             if probe.get("busy"):
                 continue
+            free = probe.get("free_gib")
+            if isinstance(free, (int, float)):
+                self.check_disk(slot["host"], free)
+                if free < self.cfg.get("windows_min_free_gib", 15):
+                    if self.low_noted.get(sid, 0) < time.time() - 3600:
+                        self.low_noted[sid] = time.time()
+                        log(f"windows slot {sid} skipped: {free} GiB free, below "
+                            f"{self.cfg.get('windows_min_free_gib', 15)} GiB (no job would build there)")
+                    continue
             return slot
         return None
+
+    # ------------------------------------------------------------ time windows (slot_window.py)
+    def slot_of(self, job):
+        return next((s for s in self.cfg["windows_slots"] if f"{s['host']}:{s['root']}" == job.get("slot")), None)
+
+    def window_open(self, slot, now=None):
+        """A slot without a window is always open; a malformed window keeps the slot closed (logged hourly)."""
+        sid = f"{slot['host']}:{slot['root']}"
+        now = time.time() if now is None else now
+        try:
+            if slot_window.is_open(slot.get("window"), now):
+                return True
+            why = f"outside its build window {slot_window.describe(slot['window'])}"
+        except slot_window.WindowError as exc:
+            why = f"its window is invalid ({exc}); no job goes there until config.json is fixed"
+        if self.window_noted.get(sid, 0) < now - 3600:
+            self.window_noted[sid] = now
+            log(f"windows slot {sid} skipped: {why}")
+        return False
+
+    def enforce_windows(self, jobs, now=None):
+        """A job still running on a slot whose window has closed is stopped (the remote Cancel ends its process
+        tree at once) and requeued by check(); it then builds on another slot or in the next window. Stopping
+        at the close, rather than letting the build finish, is what keeps the host idle by idle_by: a build
+        takes 0.5-2.5 h. A stop that keeps failing past idle_by is written to alerts.log."""
+        now = time.time() if now is None else now
+        for job in jobs:
+            if job["platform"] != "windows" or job["state"] != "running" or job.get("cancel_requested"):
+                continue
+            slot = self.slot_of(job)
+            if slot is None or not slot.get("window") or job.get("window_stop"):
+                continue
+            if self.window_open(slot, now):
+                continue
+            try:
+                self.cancel(job)
+            except (RuntimeError, subprocess.SubprocessError, OSError, ValueError) as exc:
+                log(f"{job['id']}: stop at the window close of {job['slot']} failed, retrying: {exc}")
+                if slot_window.overdue(slot["window"], now) and not self.warned.get(job["id"]):
+                    self.warned[job["id"]] = now
+                    msg = f"WARNING {job['slot']}: {job['id']} still running after idle_by and cannot be stopped: {exc}"
+                    log(msg)
+                    with open(os.path.join(self.store.root, "alerts.log"), "a", encoding="utf-8") as f:
+                        f.write(f"{time.strftime('%F %T')} {msg}\n")
+                continue
+            self.store.update(job["id"], window_stop=True)
+            self.next_poll.pop(job["id"], None)
+            with open(job["log"], "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%F %T')}] build window of {job['slot']} closed "
+                        f"({slot_window.describe(slot['window'])}): build stopped, the job goes back to the queue\n")
+            log(f"{job['id']}: window of {job['slot']} closed, build stopped for a requeue")
+
+    def requeue_after_window(self, job, st):
+        with open(job["log"], "a", encoding="utf-8") as f:
+            f.write(st.get("log", ""))
+            f.write(f"\n[{time.strftime('%F %T')}] requeued after the window close of {job['slot']}\n")
+        try:
+            self.remote(job["host"], "Cleanup", "-Root", job["win_root"], "-Job", win_task_name(job["id"]))
+        except (RuntimeError, subprocess.SubprocessError, OSError, ValueError) as exc:
+            log(f"{job['id']}: cleanup after the window stop failed (harmless, out\\{job['id']} stays): {exc}")
+        self.store.update(job["id"], state="queued", slot=None, host=None, win_root=None, pid=None, window_stop=False,
+                          started=None, started_at=None, window_requeues=job.get("window_requeues", 0) + 1)
+        log(f"{job['id']}: requeued after the window close of {job['slot']}")
+
+    # ------------------------------------------------------------ disk report (read only: nothing is deleted)
+    def disk_report(self, host, top=15):
+        """Free space and the largest D:\\hst-test folders of a host, saved in windows-disk.json."""
+        rep = self.remote(host, "DiskReport", "-Top", str(top), timeout=900)
+        rep["host"], rep["fetched"] = host, time.time()
+        path = os.path.join(self.store.root, "windows-disk.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                all_reports = json.load(f)
+        except (FileNotFoundError, ValueError):
+            all_reports = {}
+        all_reports[host] = rep
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(all_reports, f, indent=1, sort_keys=True)
+        os.replace(path + ".tmp", path)
+        return rep
+
+    def check_disk(self, host, free):
+        """Below windows_warn_free_gib: a warning (journal + alerts.log) naming the largest D:\\hst-test folders,
+        at most once an hour per host."""
+        if free >= self.cfg.get("windows_warn_free_gib", 25) or self.warned.get(host, 0) > time.time() - 3600:
+            return
+        self.warned[host] = time.time()
+        try:
+            rep = self.disk_report(host)
+            top = ", ".join(f"{d['name']} {d['gib']} GiB (newest {d['newest'][:16]}"
+                            f"{', owner ' + d['owner'] if d.get('owner') else ''})" for d in rep.get("folders", [])[:5])
+        except (RuntimeError, subprocess.SubprocessError, OSError, ValueError) as exc:
+            top = f"(disk report failed: {exc})"
+        msg = (f"WARNING {host} D: {free} GiB free (< {self.cfg.get('windows_warn_free_gib', 25)} GiB); "
+               f"largest D:\\hst-test folders: {top}")
+        log(msg)
+        with open(os.path.join(self.store.root, "alerts.log"), "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%F %T')} {msg}\n")
 
     def jobs_for(self, slot):
         """-Jobs for a new build: the slot's threads shared with the builds already running on the same host
@@ -147,6 +258,9 @@ class WindowsRunner:
             log(f"{job['id']}: status failed ({exc}); retrying later")
             return None
         if st.get("state") == "running":
+            return None
+        if job.get("window_stop") and st.get("state") != "done":
+            self.requeue_after_window(job, st)
             return None
         with open(job["log"], "a", encoding="utf-8") as f:
             f.write(st.get("log", ""))

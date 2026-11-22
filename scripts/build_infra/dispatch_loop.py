@@ -2,8 +2,9 @@
 """Dispatcher of the local build queue (scripts/build-queue.py): `build-queue.sh dispatch` (systemd unit
 hst-build-queue.service, scripts/linux/hst-build-queue.service).
 
-Every poll_seconds it reaps finished jobs, stops jobs whose cancel was requested, starts queued jobs by
-priority/FIFO on free slots, and applies output retention:
+Every poll_seconds it reaps finished jobs, stops jobs whose cancel was requested, runs the build train step
+(queue_train_tick.py: merge/push/submit trains, judge finished ones, start the next), starts queued jobs by
+priority/FIFO on free slots, and applies output retention (after a job finished, else every RETENTION_SECONDS):
   - linux:   scripts/linux/local-build.sh --slot N on a slot that build-slots.py free-slot reports idle and
              admissible (the admission controller still decides -j and may hold the job until memory allows);
   - windows: the config's windows_slots pool (host + root). The tools are deployed to each host
@@ -18,17 +19,47 @@ import os
 import sys
 import time
 
-from .dispatch_linux import LinuxRunner
+from .dispatch_linux_pool import LinuxPool
 from .dispatch_paths import log
 from .dispatch_windows import WindowsRunner
+from .queue_sign import SignError, sign_job, wants_signing
+
+RETENTION_SECONDS = 600
+_last_retention = [0.0]
+
 
 # ---------------------------------------------------------------- loop
+def run_retention(store, core, cfg):
+    _last_retention[0] = time.time()
+    freed = core.apply_retention(store, cfg)
+    if freed:
+        reasons = {}
+        for _jid, reason, _size in freed:
+            kind = reason.split(" of ")[0] if reason.startswith("older") else reason
+            reasons[kind] = reasons.get(kind, 0) + 1
+        log(f"retention: deleted {len(freed)} outputs, freed {sum(f[2] for f in freed) / 2**30:.2f} GiB "
+            f"({', '.join(f'{n} {k}' for k, n in sorted(reasons.items()))})")
+
+
 def requeue_if_infra(store, core, job, error):
     """Put a job that failed because of the infrastructure back in the queue (at most MAX_INFRA_RETRIES times)."""
     retries = job.get("infra_retries", 0)
-    if job.get("cancel_requested") or retries >= core.MAX_INFRA_RETRIES:
+    if job.get("cancel_requested"):
         return False
-    if not core.infra_failure(error, core.log_tail(job["log"], 80)):
+    tail = core.log_tail(job["log"], 80)
+    wrong_slot = job.get("incomplete_slot_retries", 0)
+    if core.INCOMPLETE_SLOT_RE.search(f"{error}\n{tail}") and wrong_slot < core.MAX_INCOMPLETE_SLOT_RETRIES:
+        with open(job["log"], "a", encoding="utf-8") as f:
+            f.write(f"\n[{time.strftime('%F %T')}] slot {job.get('slot')} has no complete build for --modules: "
+                    f"requeued, not counted against the job (retry {wrong_slot + 1}/"
+                    f"{core.MAX_INCOMPLETE_SLOT_RETRIES})\n")
+        store.update(job["id"], state="queued", incomplete_slot_retries=wrong_slot + 1, slot=None, pid=None,
+                     cancel_sent=False, last_infra_error=error)
+        log(f"{job['id']}: slot {job.get('slot')} has no complete build, requeued without charge")
+        return True
+    if retries >= core.MAX_INFRA_RETRIES:
+        return False
+    if not core.infra_failure(error, tail):
         return False
     with open(job["log"], "a", encoding="utf-8") as f:
         f.write(f"\n[{time.strftime('%F %T')}] infrastructure failure ({error}); requeued "
@@ -37,6 +68,23 @@ def requeue_if_infra(store, core, job, error):
                  slot=None, pid=None, cancel_sent=False)
     log(f"{job['id']}: infrastructure failure, requeued: {error}")
     return True
+
+
+def sign_output(store, job, fields, cfg):
+    """An integrator Linux release build: GPG-sign its .rpm/.AppImage (queue_sign.py); a failure fails the job."""
+    def to_log(text):
+        with open(job["log"], "a", encoding="utf-8") as f:
+            f.write(text)
+    to_log(f"\n[{time.strftime('%F %T')}] signing the Linux packages (dispatcher, packaging key)\n")
+    try:
+        output = sign_job(job, store.job_out(job["id"]), cfg, to_log, workroot=store.work_dir)
+    except SignError as exc:
+        to_log(f"[{time.strftime('%F %T')}] signing FAILED: {exc}\n")
+        log(f"{job['id']}: signing failed: {exc}")
+        return "failed", {"error": f"dispatcher: signing: {exc}"}
+    to_log(f"[{time.strftime('%F %T')}] signed; rpm -K: digests signatures OK\n")
+    log(f"{job['id']}: Linux packages signed")
+    return "done", dict(fields, output=output, signed=True)
 
 
 def tick(store, runners, core):
@@ -61,10 +109,23 @@ def tick(store, runners, core):
             t = time.time()
             if state == "failed" and requeue_if_infra(store, core, job, fields.get("error", "")):
                 continue
+            if state == "done" and wants_signing(dict(job, **fields), cfg):
+                state, fields = sign_output(store, job, fields, cfg)
             store.update(job["id"], state=state, finished=t, finished_at=core.now_iso(t), **fields)
             log(f"{job['id']}: {state} {fields}")
             finished = True
+    try:
+        from .queue_train_tick import tick as train_tick
+        train_tick(store, core, cfg, log=log)
+    except Exception as exc:  # noqa: BLE001 - the train must never stop the dispatching of other jobs
+        log(f"train step failed: {exc!r}")
     jobs = store.all()
+    if hasattr(runners["linux"], "health"):
+        runners["linux"].health(jobs)   # remote Linux hosts that stopped answering: offline, their jobs requeued
+        jobs = store.all()
+    if hasattr(runners["windows"], "enforce_windows"):
+        runners["windows"].enforce_windows(jobs)   # jobs on slots whose time window closed: stopped, requeued
+        jobs = store.all()
     if hasattr(runners["windows"], "process_drains"):
         runners["windows"].process_drains(jobs, core)
     blocked = set()
@@ -73,14 +134,22 @@ def tick(store, runners, core):
         if platform in blocked:
             continue   # strict priority per platform: nothing overtakes a waiting higher-priority job
         runner = runners[platform]
-        slot = runner.free_slot(jobs, runner.want(job)) if platform == "linux" else runner.free_slot(jobs)
+        slot = runner.free_slot(jobs, runner.want(job), job) if platform == "linux" else runner.free_slot(jobs)
         if slot is None:
-            blocked.add(platform)
+            if not job.get("modules"):
+                # Strict priority per platform; a --modules job only waits for a slot with a complete build, so it
+                # does not hold back a full build that can use (and seed) a slot without one.
+                blocked.add(platform)
             continue
         with store.lock():
             current = store.load(job["id"])
             if current["state"] != "queued":
                 continue
+            # From here on a submit may no longer add tests to this job (queue_rules.test_merge_target), and the
+            # runner gets the record as it is now, not the copy read at the start of the tick.
+            current["starting"] = time.time()
+            store.save(current)
+            job = current
         try:
             fields = runner.start(job, slot)
         except Exception as exc:  # noqa: BLE001 - a job that cannot start fails visibly instead of looping
@@ -93,8 +162,11 @@ def tick(store, runners, core):
         job = store.update(job["id"], state="running", started=t, started_at=core.now_iso(t), **fields)
         log(f"{job['id']}: started {platform} {job['label']}@{job['sha'][:10]} on {fields['slot']}")
         jobs = store.all()
-    if finished:
-        core.apply_retention(store, cfg["retention_per_branch"])
+    if finished or time.time() - _last_retention[0] >= RETENTION_SECONDS:
+        try:
+            run_retention(store, core, cfg)
+        except Exception as exc:  # noqa: BLE001 - retention problems are logged, dispatching goes on
+            log(f"retention failed: {exc!r}")
 
 
 def run(store, once=False):
@@ -107,7 +179,7 @@ def run(store, once=False):
         print("build-queue: another dispatcher is running", file=sys.stderr)
         return 1
     cfg = store.config()
-    runners = {"linux": LinuxRunner(store, cfg), "windows": WindowsRunner(store, cfg)}
+    runners = {"linux": LinuxPool(store, cfg), "windows": WindowsRunner(store, cfg)}
     log(f"dispatcher started (queue {store.root}, windows slots "
         f"{[s['host'] + ':' + s['root'] for s in cfg['windows_slots']]})")
     while True:

@@ -8,7 +8,7 @@ import os
 import sys
 import time
 
-from .slots_host import (disk_free_gib, mem_available_gib, pid_alive, scope_memory_gib, slot_dirs, slot_locked,
+from .slots_host import (disk_free_gib, mem_available_gib, pid_alive, scope_memory_gib, slot_complete, slot_dirs, slot_locked,
                          swap_used_gib)
 from .slots_model import ROOT, Config, budget_gib, waterfill
 
@@ -147,16 +147,19 @@ class Controller:
             state["slots"].pop(str(slot), None)
             state["swap_base_gib"] = self.swap_used_gib()
 
-    def free_slot(self, want, exclude=()):
-        """A slot number that is idle and admissible now, or (None, reason)."""
+    def free_slot(self, want, exclude=(), complete=False):
+        """A slot number that is idle and admissible now, or (None, reason). complete=True (a --modules build): only
+        a slot that holds a complete build. Otherwise a slot without one comes first, so a full build seeds it."""
         with self.locked() as state:
             busy = set(state["slots"]) | {str(s) for s in exclude}
-            for slot in slot_dirs(self.root):
-                if str(slot) in busy or slot_locked(self.root, slot):
-                    continue
+            idle = [s for s in slot_dirs(self.root) if str(s) not in busy and not slot_locked(self.root, s)]
+            done = {s: slot_complete(self.root, s) for s in idle}
+            if complete:
+                idle = [s for s in idle if done[s]]
+            for slot in sorted(idle, key=lambda s: (done[s], s)):
                 _, _, reason = self.check_admit(state, slot, want)
                 return (slot, None) if reason is None else (None, reason)
-            return None, "no idle slot"
+            return None, "no idle slot with a complete build" if complete and done else "no idle slot"
 
     def status(self):
         with self.locked() as state:

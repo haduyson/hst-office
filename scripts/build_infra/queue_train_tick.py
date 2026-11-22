@@ -1,0 +1,306 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""The dispatcher's build train step (once per tick, under train.lock). In order:
+  1. trains being merged: merge (deterministic), push train/<prefix>NNN, submit one job per platform (the Linux job
+     also runs the train's test set: train_tests + the tests the members declared, see train_test_set);
+  2. trains being built whose jobs all finished: pass -> members passed; cancelled/infra -> members retried;
+     failed -> attribution (queue_train.decide_failure): blamed members ejected with a confirmation build, the
+     others carried to the next train, or a bisect into two half trains;
+  3. bisected trains whose halves are all decided: closed;
+  4. fewer than train_max_concurrent trains in flight and the start rule holds (queue_train.should_start): a new
+     train from the ready branches whose LibreOffice files are disjoint from each other and from every train in
+     flight (each train merges onto its own snapshot of the integration branch);
+  5. train branches older than train_keep_days whose builds are over: deleted from origin.
+Every step is idempotent: a restart (or a crash between two steps) redoes the step from the saved records.
+"""
+import json
+import os
+import time
+
+from .queue_store import PLATFORMS, QueueError, now_iso
+from .queue_train import in_flight_files, ready_order, select_members, should_start, train_test_set
+from .queue_train_git import TrainGitError, TrainRepo
+from .queue_train_judge import TrainJudge
+from .queue_train_ops import note
+from .queue_train_store import TRAIN_ACTIVE, TRAIN_FINAL, TrainStore, read_json
+
+GIT_RETRY_SECONDS = 60
+GIT_MAX_TRIES = 30
+# A failing train start (no network), or ready branches that all wait for a train in flight, is retried once a
+# minute, not every tick.
+_backoff = {"start": 0.0}
+
+
+def _print_log(msg):
+    print(f"[{time.strftime('%F %T')}] {msg}", flush=True)
+
+
+class TrainStep(TrainJudge):
+    def __init__(self, store, core, cfg, repo=None, now=None, log=_print_log):
+        self.store, self.core, self.cfg, self.log = store, core, cfg, log
+        self.ts = TrainStore(store)
+        self.repo = repo or TrainRepo(self.ts.repo)
+        self.now = time.time() if now is None else now
+        self.branches = {}
+
+    # ------------------------------------------------------------ helpers
+    def event(self, rec, msg):
+        rec.setdefault("events", []).append([now_iso(self.now), msg])
+        del rec["events"][:-100]
+        self.log(f"train {rec['name']}: {msg}")
+
+    def owned(self, branch, owner):
+        """The candidate when it is still in train `owner` (None: any state). Redoing a step after a crash finds the
+        candidate already decided and changes nothing (no attempt counted twice)."""
+        cand = self.branches.get(branch)
+        if cand is None or (owner and (cand["state"] != "in-train" or cand.get("train") != owner)):
+            return None
+        return cand
+
+    def release(self, branch, reason, carry=True, owner=None, count=False):
+        """Back to ready (a carry-over rides the next train at once). Only a train that could not finish (cancelled
+        jobs, infrastructure or git failures: count=True) uses up an attempt; after train_max_attempts: failed."""
+        cand = self.owned(branch, owner)
+        if cand is None:
+            return
+        if cand.get("removed"):
+            del self.branches[branch]
+            return
+        cand["attempts"] = cand.get("attempts", 0) + (1 if count else 0)
+        if cand["attempts"] >= self.cfg["train_max_attempts"]:
+            cand.update(state="failed", carry=False)
+            note(cand, f"gave up after {cand['attempts']} trains: {reason}", self.now)
+        else:
+            cand.update(state="ready", carry=carry)
+            if not carry:
+                cand["ready_since"] = self.now
+            note(cand, f"ready again: {reason}", self.now)
+
+    def decide(self, branch, state, text, owner=None, **fields):
+        cand = self.owned(branch, owner)
+        if cand is None:
+            return
+        if cand.get("removed"):
+            del self.branches[branch]
+            return
+        cand.update(state=state, carry=False, **fields)
+        note(cand, text, self.now)
+
+    def next_number(self):
+        """Numbers count per train_prefix: the first train of a new prefix is NNN = 001."""
+        prefix = self.cfg["train_prefix"]
+        nums = [r["number"] for r in self.ts.trains() if r["name"].startswith(prefix)]
+        for name in self.repo.remote_trains(prefix):
+            tail = name[len(prefix):]
+            if tail.isdigit():
+                nums.append(int(tail))
+        return max(nums, default=0) + 1
+
+    def new_record(self, number, members, platforms, base_sha, kind="train", parent=None, round_no=0, tests=None):
+        name = f"{self.cfg['train_prefix']}{number:03d}"
+        tests = train_test_set(self.cfg, members) if tests is None else list(tests)
+        return {"number": number, "name": name, "kind": kind, "parent": parent, "round": round_no,
+                "state": "merging", "base_ref": self.cfg["integration_branch"], "base_sha": base_sha,
+                "created": int(self.now), "created_at": now_iso(self.now), "platforms": platforms,
+                "members": members, "tests": tests, "conflicts": {}, "jobs": {}, "results": {}, "tries": 0}
+
+    # ------------------------------------------------------------ 1. merge, push, submit
+    def build(self, rec):
+        if self.now < rec.get("next_try", 0):
+            return
+        try:
+            self.repo.ensure()
+            self.repo.fetch()
+            sha, merged, conflicts = self.repo.merge(rec["base_sha"], rec["members"], rec["created"], rec["name"])
+            for branch, files in conflicts.items():
+                msha = next(m["sha"] for m in rec["members"] if m["branch"] == branch)
+                rec["conflicts"][branch] = files
+                if self.repo.conflicts_with_base(rec["base_sha"], msha):
+                    self.decide(branch, "ejected", f"merge conflict with {rec['base_ref']} ({', '.join(files[:5])}): "
+                                f"rebase onto it, then `train add` again", owner=rec["name"])
+                else:
+                    self.release(branch, f"merge conflict with another branch of {rec['name']} "
+                                 f"({', '.join(files[:5])})", owner=rec["name"])
+            rec["members"] = [m for m in rec["members"] if m["branch"] in merged]
+            if not rec["members"]:
+                rec["state"] = "empty"
+                self.event(rec, "no branch merged cleanly; nothing to build")
+                return
+            if rec.get("sha") and rec["sha"] != sha:
+                raise TrainGitError(f"merge gave {sha[:12]}, the record says {rec['sha'][:12]}")
+            rec["sha"] = sha
+            if self.repo.push(rec["name"], sha):
+                self.event(rec, f"pushed {sha[:12]} = {rec['base_ref']}@{rec['base_sha'][:10]} + "
+                           + ", ".join(f"{m['branch']}@{m['sha'][:10]}" for m in rec["members"]))
+            rec["pushed"] = True
+        except TrainGitError as exc:
+            rec["tries"] = rec.get("tries", 0) + 1
+            rec["last_error"] = str(exc)
+            rec["next_try"] = self.now + GIT_RETRY_SECONDS
+            self.event(rec, f"git step failed (try {rec['tries']}/{GIT_MAX_TRIES}): {exc}")
+            if rec["tries"] >= GIT_MAX_TRIES:
+                rec["state"] = "error"
+                for m in rec["members"]:
+                    self.release(m["branch"], f"{rec['name']} could not be merged or pushed: {exc}",
+                                 owner=rec["name"], count=True)
+            return
+        if rec["kind"] == "train":
+            # Tests run on Linux only: a train with a test set always builds Linux, even for Windows-only members.
+            wanted = {p for m in rec["members"] for p in m["platforms"]} | ({"linux"} if rec.get("tests") else set())
+            rec["platforms"] = [p for p in PLATFORMS if p in wanted]
+        for platform in rec["platforms"]:
+            if platform not in rec["jobs"]:
+                job, _dup = self.core.submit(self.store, platform, rec["name"], self.cfg["train_priority"],
+                                             resolver=lambda _ref, s=sha: s, submitter="build-train",
+                                             internal=True, train=rec["name"],
+                                             tests=rec.get("tests", []) if platform == "linux" else ())
+                rec["jobs"][platform] = job["id"]
+        rec["state"] = "building"
+        self.event(rec, "building: " + ", ".join(f"{p} {j}" for p, j in sorted(rec["jobs"].items())))
+
+    # ------------------------------------------------------------ 4. start a train
+    def maybe_start(self):
+        flag = self.ts.flag("start-requested")
+        forced = os.path.exists(flag)
+        ready = sorted((c for c in self.branches.values() if c["state"] == "ready"), key=ready_order)
+        if not should_start(ready, self.now, self.cfg, forced):
+            return None
+        busy = in_flight_files(self.ts.trains(), TRAIN_ACTIVE)
+        if busy is None:
+            return None   # a train in flight has no file list: wait for it
+        self.repo.ensure()
+        self.repo.fetch()
+        base_sha = self.repo.rev(self.cfg["integration_branch"])
+        if not base_sha:
+            raise TrainGitError(f"origin/{self.cfg['integration_branch']} not found")
+        held = read_json(self.ts.flag("base-hold.json"), {})
+        if held.get("sha") == base_sha:
+            return None   # the integration branch fails to build at this commit: wait until it moves
+        cands = []
+        for cand in ready:
+            sha = self.repo.rev(cand["branch"])
+            if sha is None:
+                self.decide(cand["branch"], "failed", "the branch is no longer on origin")
+            elif self.repo.is_ancestor(sha, base_sha):
+                self.decide(cand["branch"], "merged", f"already merged into {self.cfg['integration_branch']}")
+            else:
+                try:
+                    patches, files = self.repo.lo_files(base_sha, sha)
+                except TrainGitError as exc:
+                    self.decide(cand["branch"], "failed", f"git cannot compare it with {self.cfg['integration_branch']}"
+                                f" ({exc}); fix the branch, then `train add` again")
+                    continue
+                cands.append({"branch": cand["branch"], "sha": sha, "platforms": cand["platforms"],
+                              "patches": patches, "lo_files": files, "carry": cand.get("carry"),
+                              "tests": cand.get("tests", [])})
+        chosen, deferred = select_members(cands, self.cfg["train_max_branches"], busy)
+        for branch, reason in deferred.items():
+            text = f"ready, waiting for the next train: {reason}"
+            if self.branches[branch].get("note") != text:   # re-checked every minute: one note per reason
+                note(self.branches[branch], text, self.now)
+        if not chosen:
+            waits = any("still building" in why for why in deferred.values())
+            if os.path.exists(flag) and not waits:   # a forced start waiting for a train in flight stays requested
+                os.remove(flag)
+            _backoff["start"] = self.now + GIT_RETRY_SECONDS
+            return None
+        members = [{k: c[k] for k in ("branch", "sha", "platforms", "patches", "lo_files", "tests")} for c in chosen]
+        rec = self.new_record(self.next_number(), members, list(PLATFORMS), base_sha)
+        rec["deferred"] = deferred
+        for m in members:
+            cand = self.branches[m["branch"]]
+            cand.update(state="in-train", train=rec["name"], carry=False)
+            note(cand, f"in {rec['name']} at {m['sha'][:10]}", self.now)
+        self.ts.save_branches(self.branches)   # candidates first: a crash leaves them in-train of a saved record
+        self.ts.save(rec)
+        if os.path.exists(flag):
+            os.remove(flag)
+        self.event(rec, f"started{' (forced)' if forced else ''} on {rec['base_ref']}@{base_sha[:10]} with "
+                   + ", ".join(m["branch"] for m in members))
+        return rec
+
+    # ------------------------------------------------------------ 5. delete old train branches
+    def cleanup(self, rec):
+        if rec["state"] not in TRAIN_FINAL or not rec.get("pushed") or rec.get("ref_deleted"):
+            return
+        if self.now - rec["created"] < self.cfg["train_keep_days"] * 86400:
+            return
+        for jid in rec.get("jobs", {}).values():
+            try:
+                if self.store.load(jid)["state"] in ("queued", "running"):
+                    return
+            except QueueError:
+                pass
+        confirms = [j for c in self.branches.values() if c["state"] == "ejected" and c.get("train") == rec["name"]
+                    for j in c.get("confirm", {}).values()]
+        for jid in confirms:
+            try:
+                if self.store.load(jid)["state"] in ("queued", "running"):
+                    return
+            except QueueError:
+                pass
+        self.repo.delete_remote(rec["name"])
+        rec["ref_deleted"] = True
+        self.event(rec, f"branch deleted from origin (older than {self.cfg['train_keep_days']} days)")
+
+    # ------------------------------------------------------------ the step
+    def save_if_changed(self, rec, before):
+        """Candidates are saved before the train record: a crash in between leaves the record to be redone,
+        and the redo finds the candidates already decided (owned() guards every change)."""
+        branches = json.dumps(self.branches, sort_keys=True)
+        if branches != self.saved_branches:
+            self.ts.save_branches(self.branches)
+            self.saved_branches = branches
+        if json.dumps(rec, sort_keys=True) != before:
+            self.ts.save(rec)
+
+    def reconcile(self):
+        """An in-train candidate whose train is over (or gone) without a decision goes back to ready."""
+        trains = {r["name"]: r for r in self.ts.trains()}
+        for branch, cand in list(self.branches.items()):
+            rec = trains.get(cand.get("train"))
+            if cand["state"] == "in-train" and (rec is None or rec["state"] in TRAIN_FINAL):
+                self.release(branch, f"{cand.get('train')} ended without a result for it", carry=True)
+
+    def run(self):
+        if not self.cfg["train_enabled"]:
+            return
+        if not self.ts.branches() and not self.ts.trains():
+            return   # nothing to do: no git, no lock
+        with self.ts.lock():
+            self.branches = self.ts.branches()
+            self.saved_branches = json.dumps(self.branches, sort_keys=True)
+            try:
+                for state, fn in (("merging", self.build), ("building", self.evaluate),
+                                  ("bisecting", self.close_bisect)):
+                    for rec in self.ts.trains():
+                        if rec["state"] == state:
+                            before = json.dumps(rec, sort_keys=True)
+                            fn(rec)
+                            self.save_if_changed(rec, before)
+                self.reconcile()
+                flying = sum(1 for r in self.ts.trains() if r["state"] in TRAIN_ACTIVE and r["kind"] == "train")
+                if flying < self.cfg["train_max_concurrent"] and self.now >= _backoff["start"]:
+                    try:
+                        rec = self.maybe_start()
+                    except TrainGitError as exc:
+                        _backoff["start"] = self.now + GIT_RETRY_SECONDS
+                        self.log(f"train: cannot start a train now, retrying in a minute: {exc}")
+                        rec = None
+                    if rec:
+                        before = json.dumps(rec, sort_keys=True)
+                        self.build(rec)
+                        self.save_if_changed(rec, before)
+                for rec in self.ts.trains():
+                    before = json.dumps(rec, sort_keys=True)
+                    try:
+                        self.cleanup(rec)
+                    except (TrainGitError, QueueError) as exc:
+                        self.log(f"train {rec['name']}: branch cleanup failed, retried later: {exc}")
+                    self.save_if_changed(rec, before)
+            finally:
+                if json.dumps(self.branches, sort_keys=True) != self.saved_branches:
+                    self.ts.save_branches(self.branches)
+
+
+def tick(store, core, cfg=None, repo=None, now=None, log=_print_log):
+    TrainStep(store, core, cfg or store.config(), repo, now, log).run()
