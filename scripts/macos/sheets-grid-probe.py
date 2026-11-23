@@ -56,7 +56,7 @@ resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.U
 ctx = None
 for _ in range(180):
     try:
-        ctx = resolver.resolve("uno:pipe,name=hstsheetgrid;urp;StarOffice.ComponentContext")
+        ctx = resolver.resolve("uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext")
         break
     except Exception:
         time.sleep(1)
