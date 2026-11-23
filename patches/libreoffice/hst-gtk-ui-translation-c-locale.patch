@@ -9,6 +9,10 @@ load_ui_file now gives GtkBuilder the file with its translatable texts translate
 language (vcl::hst::TranslateUiFileForGtkBuilder: the interface's domain, each text's context, as VclBuilder) and
 the translatable flags removed. Other locales, and an English UI, load the file as before.
 
+The domain goes to Translate::Create as a NUL-terminated copy: a view into the file made boost::locale read
+the rest of the .ui as the domain name and its encoding, so the first .ui of a catalog not used before (cui: Tip
+of the Day, Format > Paragraph) left that catalog without texts and throwing for non-ASCII texts (abort).
+
 Test: tests/runtime/check-backstage-print-repeat.py under LANG=C.UTF-8 with the Vietnamese UI (each opening: the
 panel is in Vietnamese).
 --- a/vcl/Library_vclplug_gtk3.mk
@@ -80,7 +84,7 @@ panel is in Vietnamese).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/unx/gtk3/hstuitranslate.cxx
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,152 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -195,7 +199,12 @@ panel is in Vietnamese).
 +        = attribute(std::string_view(aUi).substr(nInterface, nInterfaceEnd - nInterface), "domain");
 +    if (aDomain.empty())
 +        return {};
-+    const std::locale aCatalog = Translate::Create(aDomain, rUILanguage);
++    // A copy that ends in NUL: Translate::Create hands the name's data() to boost::locale as a C string, so a
++    // view into the file would take the rest of the .ui as the domain ("cui\">...") and its encoding: the
++    // cached catalog then had no texts and threw boost::locale::conv::invalid_charset_error for every
++    // non-ASCII source text, an abort in the scheduler (Tip of the Day, the Paragraph dialog).
++    const OString aDomainName(aDomain);
++    const std::locale aCatalog = Translate::Create(aDomainName, rUILanguage);
 +
 +    OStringBuffer aOut(static_cast<sal_Int32>(aUi.size()));
 +    const std::string_view aView(aUi);
