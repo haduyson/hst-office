@@ -212,8 +212,42 @@ def plus(office, which, title):
           f"ax={series}", flush=True)
 
 
+def switch_probe(office):
+    """Windowed: three Writer tabs and a Sheets tab, then real clicks on each tab twice; the NSWindow frame of every
+    office window after each click (state dumps) and the on-screen window rects at 50 Hz (sampler, shell)."""
+    front()
+    for _ in range(3):
+        osa('tell application "System Events" to keystroke "n" using command down')
+        time.sleep(5)
+    log("calc", office.call("load", "private:factory/scalc"))
+    time.sleep(6)
+    office.state("switch-ready")
+    path = f"{OUT}/{LABEL}-switch-locate.png"
+    subprocess.run(["screencapture", "-x", path], check=False)
+    _x, row_y, _f, info = locate_tab_row(path)
+    closes = [x for x in info.get("x_glyphs", []) if x > 60]
+    log("tab closes", closes, "row", info.get("x_row"))
+    with open(f"{OUT}/{LABEL}-switch-marks.txt", "w", encoding="utf-8") as marks:
+        for rnd in range(2):
+            for i, cx in enumerate(closes):
+                tx = cx - 45
+                marks.write(f"{int(time.time() * 1000)} click tab {i + 1} at {tx},{info.get('x_row')}\n")
+                marks.flush()
+                subprocess.run(["cliclick", f"c:{tx},{info.get('x_row')}"], check=False, timeout=20)
+                time.sleep(1.5)
+                st = office.state(f"switch-r{rnd + 1}-tab{i + 1}")
+                shot(f"switch-r{rnd + 1}-tab{i + 1}")
+                rects = [(w["n"], w["title"][:14], w.get("frame")) for w in (st or {}).get("ns", {}).get("windows", [])
+                         if w.get("visible") and w.get("title") and "ImplGetDef" not in w["title"]]
+                print(f"RESULT {LABEL} switch r{rnd + 1} tab{i + 1}: visible {rects}", flush=True)
+
+
 def main():
     office = Office()
+    if LAYOUT == "switch":
+        time.sleep(2)
+        switch_probe(office)
+        os._exit(0)
     time.sleep(2)
     if ADOPTER == "off":
         log("adopter", office.call("disable_adopter"))

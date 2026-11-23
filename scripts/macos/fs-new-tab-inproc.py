@@ -65,6 +65,7 @@ def nswindows_rows():
             "tabbar": bool(_send(group, "isTabBarVisible", ctypes.c_bool)) if group else None,
             "parent": _num(_send(w, "parentWindow")),
             "children": _numbers(_send(w, "childWindows")) if _send(w, "childWindows") else [],
+            "frame": frame_of(w),
         }
         rows.append(row)
     app_info = {"key": _num(_send(app, "keyWindow")), "main": _num(_send(app, "mainWindow")),
@@ -99,6 +100,16 @@ def _adopter():
         if name.endswith("mac_full_screen_dialogs") and hasattr(mod, "_STATE"):
             return mod
     return None
+
+
+class _Rect(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double), ("w", ctypes.c_double), ("h", ctypes.c_double)]
+
+
+def frame_of(w):
+    """[NSWindow frame] (arm64: a struct of four doubles comes back in registers, plain objc_msgSend)."""
+    r = _send(w, "frame", _Rect)
+    return [round(r.x), round(r.y), round(r.w), round(r.h)] if r else None
 
 
 class _CB(unohelper.Base, XCallback):

@@ -13,6 +13,10 @@ on:
         description: 'Desktop macOS run id whose dmg artifact is probed'
         type: string
         default: '45105332888'
+      layouts:
+        description: 'Probe layouts (fullscreen windowed switch)'
+        type: string
+        default: 'fullscreen windowed'
 permissions:
   contents: read
 jobs:
@@ -53,7 +57,10 @@ jobs:
           fi
           find "$RUNNER_TEMP/dmg" -name '*.dmg'
       - name: Probe opening another tab
+        if: ${{ inputs.layouts != 'switch' || (matrix.adopter == 'on' && matrix.tips == 'on') }}
         shell: bash
+        env:
+          LAYOUTS: ${{ inputs.layouts }}
         run: |
           set -eu
           dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)

@@ -19,7 +19,8 @@ py="$(find "$app/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-c
 pyuno="$(find "$app/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)"
 pyhome="$(dirname "$pyuno")"
 : >"$out/summary.md"
-for layout in fullscreen windowed; do
+swiftc -O -o "$work/sampler" "$here/tab-probe-sampler.swift" 2>"$out/swiftc.log" || true
+for layout in ${LAYOUTS:-fullscreen windowed}; do
   label="$layout-adopter-$adopter-tips-$tips"
   profile="$work/profile-$layout"; mkdir -p "$profile/user"
   cat >"$profile/user/registrymodifications.xcu" <<'XCU'
@@ -38,9 +39,15 @@ XCU
   for _ in $(seq 1 60); do pid="$(pgrep -n -x soffice || true)"; [ -n "$pid" ] && break; sleep 1; done
   [ -n "$pid" ] || { echo "- $label: no soffice" >>"$out/summary.md"; continue; }
   sleep 12; pid="$(pgrep -n -x soffice || echo "$pid")"
+  sampler=""
+  if [ "$layout" = switch ] && [ -x "$work/sampler" ]; then
+    python3 -c 'import time;print(int(time.time()*1000))' >"$out/$label-sampler-start.txt"
+    "$work/sampler" "$pid" 200 >"$out/$label-samples.csv" 2>/dev/null & sampler=$!
+  fi
   URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" PYTHONPATH="$app/Contents/Resources:$pyhome" \
     perl -e 'alarm 600; exec @ARGV' "$py" "$here/fs-new-tab-probe.py" "$pid" "$out" "$label" "hstfs$layout" "$profile" \
     "$layout" "$adopter" >"$out/driver-$label.log" 2>&1 || echo "driver exit $?" >>"$out/driver-$label.log"
+  [ -n "$sampler" ] && kill "$sampler" 2>/dev/null || true
   screencapture -x "$out/$label-99-end.png" || true
   cp "$profile/user/hst-office"*.log "$out/" 2>/dev/null || true
   find "$profile/user" -name '*.log' -newer "$out/version.txt" -exec cp {} "$out/" \; 2>/dev/null || true
