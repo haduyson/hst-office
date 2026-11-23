@@ -17,6 +17,7 @@ from dialogs_writer_autofit_real_cases import check_autofit_real_documents  # no
 from dialogs_writer_border_cases import check_borders, check_page_border  # noqa: E402
 from dialogs_writer_find_cases import check_find_other_apps, check_find_tabs  # noqa: E402
 from dialogs_writer_insert_cases import check_insert_table, check_tabs  # noqa: E402
+from dialogs_writer_line_spacing_cases import check_line_spacing, check_line_spacing_others  # noqa: E402
 from dialogs_writer_other_cases import (check_hyperlink, check_margin_presets, check_page_number,  # noqa: E402
                                         check_page_setup, check_slide_properties, check_special_character,
                                         check_word_count)
@@ -27,7 +28,8 @@ from hst_dialog_uitest import Checks, DialogHarness  # noqa: E402
 from hst_gui import free_port  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DIALOGS = {"paragraph": check_paragraph, "font": check_font, "word-count": check_word_count, "hyperlink": check_hyperlink,
+DIALOGS = {"paragraph": check_paragraph, "line-spacing": check_line_spacing, "line-spacing-others": check_line_spacing_others,
+           "font": check_font, "word-count": check_word_count, "hyperlink": check_hyperlink,
            "page-setup": check_page_setup, "margin-presets": check_margin_presets, "special-character": check_special_character, "page-number": check_page_number,
            "slide-properties": check_slide_properties, "table-properties": check_table_properties,
            "table-rows": check_table_row_navigation, "table-wrap": check_table_text_wrapping,
