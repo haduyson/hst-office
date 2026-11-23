@@ -16,8 +16,102 @@ message, and the lines overlapped.
 - Writer, Calc (text in shapes), Impress and Draw share the page and the popup, so all of them get it.
 
 License: the upstream files remain under their original license (MPL-2.0); the hst* files are HST's.
-Test: CppunitTest_svx_hst_line_spacing; tests/runtime/dialogs_writer_paragraph_font_cases.py
+Test: CppunitTest_svx_hst_line_spacing; tests/runtime/check-dialogs-writer.py line-spacing line-spacing-others
 ---
+--- a/cui/source/inc/paragrph.hxx
++++ b/cui/source/inc/paragrph.hxx
+@@ -83,7 +83,8 @@ private:
+ 
+     // line spacing
+     std::unique_ptr<weld::ComboBox> m_xLineDist;
+-    std::unique_ptr<weld::MetricSpinButton> m_xLineDistAtPercentBox;
++    // HST: "Multiple" in lines like Word; the value is the percentage (svx/hstlinespacing.hxx)
++    std::unique_ptr<weld::SpinButton> m_xLineDistAtPercentBox;
+     std::unique_ptr<weld::MetricSpinButton> m_xLineDistAtMetricBox;
+     std::unique_ptr<weld::MetricSpinButton> m_xLineDistAtPlaceHolderBox;
+     std::unique_ptr<weld::Label> m_xLineDistAtLabel;
+--- a/cui/source/tabpages/paragrph.cxx
++++ b/cui/source/tabpages/paragrph.cxx
+@@ -34,6 +34,7 @@
+ #include <editeng/pgrditem.hxx>
+ #include <svx/strings.hrc>
+ #include <svx/dialmgr.hxx>
++#include <svx/hstlinespacing.hxx>
+ #include <paragrph.hxx>
+ #include <editeng/autodiritem.hxx>
+ #include <editeng/frmdiritem.hxx>
+@@ -426,8 +427,7 @@ bool SvxStdParagraphTabPage::FillItemSet( SfxItemSet* rOutSet )
+ 
+             case LLINESPACE_PROP:
+                 SetLineSpace_Impl( aSpacing, nPos,
+-                                   static_cast<tools::Long>(m_xLineDistAtPercentBox->denormalize(
+-                                   m_xLineDistAtPercentBox->get_value(FieldUnit::NONE) )) );
++                                   static_cast<tools::Long>(m_xLineDistAtPercentBox->get_value()) );
+                 break;
+ 
+             case LLINESPACE_MIN:
+@@ -1110,7 +1110,7 @@ SvxStdParagraphTabPage::SvxStdParagraphTabPage(weld::Container* pPage, weld::Dia
+     , m_aBottomDist(m_xBuilder->weld_metric_spin_button(u"spinED_BOTTOMDIST"_ustr, FieldUnit::CM))
+     , m_xContextualCB(m_xBuilder->weld_check_button(u"checkCB_CONTEXTUALSPACING"_ustr))
+     , m_xLineDist(m_xBuilder->weld_combo_box(u"comboLB_LINEDIST"_ustr))
+-    , m_xLineDistAtPercentBox(m_xBuilder->weld_metric_spin_button(u"spinED_LINEDISTPERCENT"_ustr, FieldUnit::PERCENT))
++    , m_xLineDistAtPercentBox(m_xBuilder->weld_spin_button(u"spinED_LINEDISTPERCENT"_ustr))
+     , m_xLineDistAtMetricBox(m_xBuilder->weld_metric_spin_button(u"spinED_LINEDISTMETRIC"_ustr, FieldUnit::CM))
+     , m_xLineDistAtPlaceHolderBox(m_xBuilder->weld_metric_spin_button(u"spinED_BLANK"_ustr, FieldUnit::CM))
+     , m_xLineDistAtLabel(m_xBuilder->weld_label(u"labelFT_LINEDIST"_ustr))
+@@ -1124,6 +1124,7 @@ SvxStdParagraphTabPage::SvxStdParagraphTabPage(weld::Container* pPage, weld::Dia
+     m_xLineDistAtMetricBox->hide();
+     m_xLineDistAtPlaceHolderBox->hide();
+     m_xLineDistAtPlaceHolderBox->set_text(OUString());
++    svx::hstlinespacing::SetupMultipleField(*m_xLineDistAtPercentBox);
+ 
+     Init_Impl();
+     m_aFLineIndent.set_min(-9999, FieldUnit::NONE);    // is set to 0 on default
+@@ -1192,7 +1193,7 @@ void SvxStdParagraphTabPage::SetLineSpacing_Impl
+                         break;
+                     }
+                     // the set per cent value
+-                    m_xLineDistAtPercentBox->set_value(m_xLineDistAtPercentBox->normalize(rAttr.GetPropLineSpace()), FieldUnit::NONE);
++                    m_xLineDistAtPercentBox->set_value(rAttr.GetPropLineSpace());
+                     m_xLineDist->set_active( LLINESPACE_PROP );
+                     break;
+ 
+@@ -1264,7 +1265,7 @@ IMPL_LINK(SvxStdParagraphTabPage, LineDistHdl_Impl, weld::ComboBox&, rBox, void)
+         case LLINESPACE_PROP:
+ 
+             if (m_xLineDistAtPlaceHolderBox->get_visible())
+-                m_xLineDistAtPercentBox->set_value(m_xLineDistAtPercentBox->normalize(100), FieldUnit::TWIP);
++                m_xLineDistAtPercentBox->set_value(100);
+             m_xLineDistAtPlaceHolderBox->hide();
+             m_xLineDistAtMetricBox->hide();
+             m_xLineDistAtPercentBox->show();
+--- a/cui/uiconfig/ui/paraindentspacing.ui
++++ b/cui/uiconfig/ui/paraindentspacing.ui
+@@ -23,11 +23,11 @@
+     <property name="page-increment">10</property>
+   </object>
+   <object class="GtkAdjustment" id="adjustmentLINEDISTPERCENT">
+-    <property name="lower">6</property>
+-    <property name="upper">65535</property>
+-    <property name="value">100</property>
+-    <property name="step-increment">1</property>
+-    <property name="page-increment">10</property>
++    <property name="lower">0.06</property>
++    <property name="upper">132</property>
++    <property name="value">1</property>
++    <property name="step-increment">0.5</property>
++    <property name="page-increment">1</property>
+   </object>
+   <object class="GtkAdjustment" id="adjustmentspinED_INDENT">
+     <property name="upper">9999</property>
+@@ -569,6 +569,7 @@
+                             <property name="activates-default">True</property>
+                             <property name="truncate-multiline">True</property>
+                             <property name="adjustment">adjustmentLINEDISTPERCENT</property>
++                            <property name="digits">2</property>
+                             <child internal-child="accessible">
+                               <object class="AtkObject" id="spinED_LINEDISTPERCENT-atkobject">
+                                 <property name="AtkObject::accessible-name" translatable="yes" context="paraindentspacing|spinED_LINEDISTPERCENT">Line Spacing Value</property>
 --- /dev/null
 +++ b/include/svx/hstlinespacing.hxx
 @@ -0,0 +1,55 @@
@@ -234,7 +328,7 @@ Test: CppunitTest_svx_hst_line_spacing; tests/runtime/dialogs_writer_paragraph_f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/svx/source/dialog/hstlinespacing.cxx
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,135 @@
 +/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
 +/* Copyright (c) HASON TECH. HST Office. */
 +
@@ -294,11 +388,67 @@ Test: CppunitTest_svx_hst_line_spacing; tests/runtime/dialogs_writer_paragraph_f
 +}
 +}
 +
-+std::optional<sal_Int64> ParseMultiple(std::u16string_view, std::u16string_view) { return {}; }
++std::optional<sal_Int64> ParseMultiple(std::u16string_view rText, std::u16string_view rDecimalSep)
++{
++    std::u16string_view aText = Trim(rText);
++    const bool bPercent = !aText.empty() && (aText.back() == '%' || aText.back() == 0xFF05);
++    if (bPercent)
++        aText = Trim(aText.substr(0, aText.size() - 1));
 +
-+sal_Int64 ClampMultiple(sal_Int64 nPercent) { return nPercent; }
++    // digits with at most one decimal separator, at least one digit
++    std::u16string_view aInteger = aText;
++    std::u16string_view aFraction;
++    for (size_t i = 0; i < aText.size(); ++i)
++    {
++        const sal_Unicode c = aText[i];
++        if (c >= '0' && c <= '9')
++            continue;
++        if (!IsDecimalSep(c, rDecimalSep) || aInteger.size() != aText.size())
++            return {};
++        aInteger = aText.substr(0, i);
++        aFraction = aText.substr(i + 1);
++    }
++    if (aInteger.empty() && aFraction.empty())
++        return {};
 +
-+OUString FormatMultiple(sal_Int64, std::u16string_view) { return OUString(); }
++    while (aInteger.size() > 1 && aInteger.front() == '0')
++        aInteger.remove_prefix(1);
++    sal_Int64 nInteger = 0;
++    if (aInteger.size() > MAX_INTEGER_DIGITS)
++        nInteger = MAX_PERCENT * 100; // far beyond the range: clamped by the caller
++    else
++        for (sal_Unicode c : aInteger)
++            nInteger = nInteger * 10 + (c - '0');
++
++    auto nFractionDigit = [&aFraction](size_t n) -> sal_Int64 {
++        return n < aFraction.size() ? aFraction[n] - '0' : 0;
++    };
++
++    if (bPercent) // whole percent, rounded half up
++        return nInteger + (nFractionDigit(0) >= 5 ? 1 : 0);
++
++    // lines -> percent: two decimals of lines are one percent, the third one rounds half up
++    return nInteger * 100 + nFractionDigit(0) * 10 + nFractionDigit(1)
++           + (nFractionDigit(2) >= 5 ? 1 : 0);
++}
++
++sal_Int64 ClampMultiple(sal_Int64 nPercent) { return std::clamp(nPercent, MIN_PERCENT, MAX_PERCENT); }
++
++OUString FormatMultiple(sal_Int64 nPercent, std::u16string_view rDecimalSep)
++{
++    const bool bNegative = nPercent < 0;
++    const sal_Int64 nAbs = bNegative ? -nPercent : nPercent;
++    const sal_Int64 nCents = nAbs % 100;
++    OUStringBuffer aBuf;
++    if (bNegative)
++        aBuf.append('-');
++    aBuf.append(nAbs / 100);
++    aBuf.append(rDecimalSep);
++    if (nCents < 10)
++        aBuf.append('0');
++    aBuf.append(nCents);
++    return aBuf.makeStringAndClear();
++}
 +
 +void SetupMultipleField(weld::SpinButton& rField)
 +{
@@ -314,3 +464,398 @@ Test: CppunitTest_svx_hst_line_spacing; tests/runtime/dialogs_writer_paragraph_f
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/svx/source/sidebar/paragraph/ParaLineSpacingControl.cxx
++++ b/svx/source/sidebar/paragraph/ParaLineSpacingControl.cxx
+@@ -26,11 +26,14 @@
+ #include <sfx2/sfxsids.hrc>
+ #include <sfx2/viewfrm.hxx>
+ #include <svtools/unitconv.hxx>
++#include <svx/hstlinespacing.hxx>
++#include <svx/svxids.hrc>
+ #include <tools/fldunit.hxx>
+ #include <tools/mapunit.hxx>
+ 
+ #include <svl/intitem.hxx>
+ #include <svl/itemset.hxx>
++#include <unotools/viewoptions.hxx>
+ 
+ #include <ParaLineSpacingPopup.hxx>
+ 
+@@ -43,6 +46,8 @@
+ #define LINESPACE_15          150
+ #define LINESPACE_2           200
+ #define LINESPACE_115         115
++#define LINESPACE_25          250
++#define LINESPACE_3           300
+ 
+ // values of the mxLineDist listbox
+ #define LLINESPACE_1          0
+@@ -66,25 +71,32 @@ ParaLineSpacingControl::ParaLineSpacingControl(SvxLineSpacingToolBoxControl* pCo
+     , mxSpacing115Button(m_xBuilder->weld_button(u"spacing_115"_ustr))
+     , mxSpacing15Button(m_xBuilder->weld_button(u"spacing_15"_ustr))
+     , mxSpacing2Button(m_xBuilder->weld_button(u"spacing_2"_ustr))
++    , mxSpacing25Button(m_xBuilder->weld_button(u"spacing_25"_ustr))
++    , mxSpacing3Button(m_xBuilder->weld_button(u"spacing_3"_ustr))
++    , mxOptionsButton(m_xBuilder->weld_button(u"options"_ustr))
+     , mxLineDist(m_xBuilder->weld_combo_box(u"line_dist"_ustr))
+     , mxLineDistLabel(m_xBuilder->weld_label(u"value_label"_ustr))
+-    , mxLineDistAtPercentBox(m_xBuilder->weld_metric_spin_button(u"percent_box"_ustr, FieldUnit::PERCENT))
++    , mxLineDistAtPercentBox(m_xBuilder->weld_spin_button(u"percent_box"_ustr))
+     , mxLineDistAtMetricBox(m_xBuilder->weld_metric_spin_button(u"metric_box"_ustr, FieldUnit::CM))
+     , mpActLineDistFld(mxLineDistAtPercentBox.get())
+ {
++    svx::hstlinespacing::SetupMultipleField(*mxLineDistAtPercentBox);
++
+     Link<weld::Button&,void> aLink = LINK(this, ParaLineSpacingControl, PredefinedValuesHandler);
+     mxSpacing1Button->connect_clicked(aLink);
+     mxSpacing115Button->connect_clicked(aLink);
+     mxSpacing15Button->connect_clicked(aLink);
+     mxSpacing2Button->connect_clicked(aLink);
++    mxSpacing25Button->connect_clicked(aLink);
++    mxSpacing3Button->connect_clicked(aLink);
++    mxOptionsButton->connect_clicked(LINK(this, ParaLineSpacingControl, OptionsHdl_Impl));
+ 
+     Link<weld::ComboBox&,void> aLink3 = LINK( this, ParaLineSpacingControl, LineSPDistHdl_Impl );
+     mxLineDist->connect_changed(aLink3);
+     SelectEntryPos(LLINESPACE_1);
+ 
+-    Link<weld::MetricSpinButton&,void> aLink2 = LINK( this, ParaLineSpacingControl, LineSPDistAtHdl_Impl );
+-    mxLineDistAtPercentBox->connect_value_changed( aLink2 );
+-    mxLineDistAtMetricBox->connect_value_changed( aLink2 );
++    mxLineDistAtPercentBox->connect_value_changed(LINK(this, ParaLineSpacingControl, LineSPDistAtPercentHdl_Impl));
++    mxLineDistAtMetricBox->connect_value_changed(LINK(this, ParaLineSpacingControl, LineSPDistAtHdl_Impl));
+ 
+     FieldUnit eUnit = FieldUnit::INCH;
+     SfxPoolItemHolder aResult;
+@@ -115,6 +127,14 @@ void ParaLineSpacingControl::GrabFocus()
+         case LLINESPACE_2:
+             mxSpacing2Button->grab_focus();
+             break;
++        case LLINESPACE_PROP:
++            if (mxLineDistAtPercentBox->get_value() == LINESPACE_25)
++                mxSpacing25Button->grab_focus();
++            else if (mxLineDistAtPercentBox->get_value() == LINESPACE_3)
++                mxSpacing3Button->grab_focus();
++            else
++                mxLineDist->grab_focus();
++            break;
+         default:
+             mxLineDist->grab_focus();
+             break;
+@@ -136,6 +156,14 @@ void ParaLineSpacingControl::Initialize()
+ 
+     mxLineDist->set_sensitive(true);
+ 
++    if (bItemStateSet)
++    {
++        SfxPoolItemHolder aDialogState;
++        mxOptionsButton->set_sensitive(
++            pCurrent->GetBindings().GetDispatcher()->QueryState(SID_PARA_DLG, aDialogState)
++            > SfxItemState::DISABLED);
++    }
++
+     if( bItemStateSet && (eState == SfxItemState::DEFAULT || eState == SfxItemState::SET) )
+     {
+         const SvxLineSpacingItem* currSPItem(static_cast<const SvxLineSpacingItem*>(aResult.getItem()));
+@@ -180,7 +208,7 @@ void ParaLineSpacingControl::Initialize()
+                         else
+                         {
+                             SelectEntryPos(LLINESPACE_PROP);
+-                            mxLineDistAtPercentBox->set_value(mxLineDistAtPercentBox->normalize(currSPItem->GetPropLineSpace()), FieldUnit::PERCENT);
++                            mxLineDistAtPercentBox->set_value(currSPItem->GetPropLineSpace());
+                         }
+                     }
+                     break;
+@@ -254,7 +282,7 @@ void ParaLineSpacingControl::UpdateMetricFields()
+         case LLINESPACE_DURCH:
+             mxLineDistAtPercentBox->hide();
+ 
+-            mpActLineDistFld = mxLineDistAtMetricBox.get();
++            mpActLineDistFld = &mxLineDistAtMetricBox->get_widget();
+             mxLineDistAtMetricBox->set_min(0, FieldUnit::NONE);
+ 
+             if (mxLineDistAtMetricBox->get_text().isEmpty())
+@@ -268,7 +296,7 @@ void ParaLineSpacingControl::UpdateMetricFields()
+         case LLINESPACE_MIN:
+             mxLineDistAtPercentBox->hide();
+ 
+-            mpActLineDistFld = mxLineDistAtMetricBox.get();
++            mpActLineDistFld = &mxLineDistAtMetricBox->get_widget();
+             mxLineDistAtMetricBox->set_min(0, FieldUnit::NONE);
+ 
+             if (mxLineDistAtMetricBox->get_text().isEmpty())
+@@ -285,7 +313,7 @@ void ParaLineSpacingControl::UpdateMetricFields()
+             mpActLineDistFld = mxLineDistAtPercentBox.get();
+ 
+             if (mxLineDistAtPercentBox->get_text().isEmpty())
+-                mxLineDistAtPercentBox->set_value(mxLineDistAtPercentBox->normalize(100), FieldUnit::TWIP);
++                mxLineDistAtPercentBox->set_value(LINESPACE_1);
+ 
+             mxLineDistLabel->set_sensitive(true);
+             mpActLineDistFld->show();
+@@ -295,7 +323,7 @@ void ParaLineSpacingControl::UpdateMetricFields()
+         case LLINESPACE_FIX:
+             mxLineDistAtPercentBox->hide();
+ 
+-            mpActLineDistFld = mxLineDistAtMetricBox.get();
++            mpActLineDistFld = &mxLineDistAtMetricBox->get_widget();
+             sal_Int64 nTemp = mxLineDistAtMetricBox->get_value(FieldUnit::NONE);
+             mxLineDistAtMetricBox->set_min(mxLineDistAtMetricBox->normalize(MIN_FIXED_DISTANCE), FieldUnit::TWIP);
+ 
+@@ -326,6 +354,11 @@ IMPL_LINK_NOARG( ParaLineSpacingControl, LineSPDistAtHdl_Impl, weld::MetricSpinB
+     ExecuteLineSpace();
+ }
+ 
++IMPL_LINK_NOARG(ParaLineSpacingControl, LineSPDistAtPercentHdl_Impl, weld::SpinButton&, void)
++{
++    ExecuteLineSpace();
++}
++
+ void ParaLineSpacingControl::ExecuteLineSpace()
+ {
+     mxLineDist->save_value();
+@@ -343,7 +376,7 @@ void ParaLineSpacingControl::ExecuteLineSpace()
+             break;
+ 
+         case LLINESPACE_PROP:
+-            SetLineSpace(aSpacing, nPos, mxLineDistAtPercentBox->denormalize(static_cast<tools::Long>(mxLineDistAtPercentBox->get_value(FieldUnit::PERCENT))));
++            SetLineSpace(aSpacing, nPos, static_cast<tools::Long>(mxLineDistAtPercentBox->get_value()));
+             break;
+ 
+         case LLINESPACE_MIN:
+@@ -428,13 +461,40 @@ IMPL_LINK(ParaLineSpacingControl, PredefinedValuesHandler, weld::Button&, rContr
+     {
+         ExecuteLineSpacing(LLINESPACE_2);
+     }
++    else if (&rControl == mxSpacing25Button.get())
++    {
++        ExecuteLineSpacing(LLINESPACE_PROP, LINESPACE_25);
++    }
++    else if (&rControl == mxSpacing3Button.get())
++    {
++        ExecuteLineSpacing(LLINESPACE_PROP, LINESPACE_3);
++    }
++}
++
++IMPL_LINK_NOARG(ParaLineSpacingControl, OptionsHdl_Impl, weld::Button&, void)
++{
++    // Like Word, open the Paragraph dialog on Indents and Spacing. Every paragraph dialog (Writer
++    // text and text boxes, Calc and Impress/Draw text) names that page "indents": make it the page
++    // the dialog restores.
++    static constexpr std::u16string_view aParagraphDialogs[] = {
++        u"modules/swriter/ui/paradialog/ParagraphPropertiesDialog",
++        u"modules/scalc/ui/paradialog/ParagraphDialog",
++        u"modules/sdraw/ui/drawparadialog/DrawParagraphPropertiesDialog",
++    };
++    for (std::u16string_view aDialog : aParagraphDialogs)
++        SvtViewOptions(EViewType::TabDialog, OUString(aDialog)).SetPageID(u"indents"_ustr);
++
++    if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
++        pViewFrm->GetBindings().GetDispatcher()->Execute(SID_PARA_DLG, SfxCallMode::ASYNCHRON | SfxCallMode::RECORD);
++
++    mxControl->EndPopupMode();
+ }
+ 
+-void ParaLineSpacingControl::ExecuteLineSpacing(sal_Int32 nEntry)
++void ParaLineSpacingControl::ExecuteLineSpacing(sal_Int32 nEntry, tools::Long nValue)
+ {
+     SvxLineSpacingItem aSpacing(DEFAULT_LINE_SPACING, SID_ATTR_PARA_LINESPACE);
+ 
+-    SetLineSpace(aSpacing, nEntry);
++    SetLineSpace(aSpacing, nEntry, nValue);
+ 
+     if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
+     {
+--- a/svx/source/sidebar/paragraph/ParaLineSpacingControl.hxx
++++ b/svx/source/sidebar/paragraph/ParaLineSpacingControl.hxx
+@@ -23,6 +23,7 @@
+ #include <vcl/weld/ComboBox.hxx>
+ #include <vcl/weld/Label.hxx>
+ #include <vcl/weld/MetricSpinButton.hxx>
++#include <vcl/weld/SpinButton.hxx>
+ 
+ class SvxLineSpacingItem;
+ 
+@@ -50,13 +51,18 @@ private:
+     std::unique_ptr<weld::Button> mxSpacing115Button;
+     std::unique_ptr<weld::Button> mxSpacing15Button;
+     std::unique_ptr<weld::Button> mxSpacing2Button;
++    // HST: Word's quick values 2.5 and 3, and "Line Spacing Options..."
++    std::unique_ptr<weld::Button> mxSpacing25Button;
++    std::unique_ptr<weld::Button> mxSpacing3Button;
++    std::unique_ptr<weld::Button> mxOptionsButton;
+ 
+     std::unique_ptr<weld::ComboBox> mxLineDist;
+ 
+     std::unique_ptr<weld::Label> mxLineDistLabel;
+-    std::unique_ptr<weld::MetricSpinButton> mxLineDistAtPercentBox;
++    // HST: "Multiple" in lines like Word; the value is the percentage (svx/hstlinespacing.hxx)
++    std::unique_ptr<weld::SpinButton> mxLineDistAtPercentBox;
+     std::unique_ptr<weld::MetricSpinButton> mxLineDistAtMetricBox;
+-    weld::MetricSpinButton* mpActLineDistFld;
++    weld::Entry* mpActLineDistFld;
+ 
+ private:
+     /// Take the values from the widgets, and update the paragraph accordingly.
+@@ -67,7 +73,7 @@ private:
+                              tools::Long lValue = 0);
+ 
+     /// For the buttons - set the values, and close the popup.
+-    void ExecuteLineSpacing(sal_Int32 aEntry);
++    void ExecuteLineSpacing(sal_Int32 aEntry, tools::Long nValue = 0);
+ 
+     /// Set mpActlineDistFld and visibility of mpLineDist* fields according to what is just selected.
+     void UpdateMetricFields();
+@@ -77,7 +83,9 @@ private:
+ 
+     DECL_LINK(LineSPDistHdl_Impl, weld::ComboBox&, void);
+     DECL_LINK(LineSPDistAtHdl_Impl, weld::MetricSpinButton&, void);
++    DECL_LINK(LineSPDistAtPercentHdl_Impl, weld::SpinButton&, void);
+     DECL_LINK(PredefinedValuesHandler, weld::Button&, void);
++    DECL_LINK(OptionsHdl_Impl, weld::Button&, void);
+ };
+ }
+ 
+--- a/svx/uiconfig/ui/paralinespacingcontrol.ui
++++ b/svx/uiconfig/ui/paralinespacingcontrol.ui
+@@ -82,6 +82,57 @@
+             <property name="top_attach">3</property>
+           </packing>
+         </child>
++        <child>
++          <object class="GtkButton" id="spacing_25">
++            <property name="label" translatable="yes" context="paralinespacingcontrol|spacing_25">Spacing: 2.5</property>
++            <property name="visible">True</property>
++            <property name="can_focus">True</property>
++            <property name="receives_default">True</property>
++            <property name="image">image_spacing_25</property>
++            <property name="relief">none</property>
++            <property name="use_underline">True</property>
++            <property name="xalign">0</property>
++            <property name="always_show_image">True</property>
++          </object>
++          <packing>
++            <property name="left_attach">0</property>
++            <property name="top_attach">4</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="spacing_3">
++            <property name="label" translatable="yes" context="paralinespacingcontrol|spacing_3">Spacing: 3</property>
++            <property name="visible">True</property>
++            <property name="can_focus">True</property>
++            <property name="receives_default">True</property>
++            <property name="image">image_spacing_3</property>
++            <property name="relief">none</property>
++            <property name="use_underline">True</property>
++            <property name="xalign">0</property>
++            <property name="always_show_image">True</property>
++          </object>
++          <packing>
++            <property name="left_attach">0</property>
++            <property name="top_attach">5</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="options">
++            <property name="label" translatable="yes" context="paralinespacingcontrol|options">Line Spacing Options...</property>
++            <property name="visible">True</property>
++            <property name="can_focus">True</property>
++            <property name="receives_default">True</property>
++            <property name="image">image_options</property>
++            <property name="relief">none</property>
++            <property name="use_underline">True</property>
++            <property name="xalign">0</property>
++            <property name="always_show_image">True</property>
++          </object>
++          <packing>
++            <property name="left_attach">0</property>
++            <property name="top_attach">6</property>
++          </packing>
++        </child>
+         <child>
+           <object class="GtkFrame" id="frame1">
+             <property name="visible">True</property>
+@@ -163,6 +214,7 @@
+                         <property name="hexpand">True</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustment1</property>
++                        <property name="digits">2</property>
+                       </object>
+                       <packing>
+                         <property name="left_attach">0</property>
+@@ -205,18 +257,18 @@
+           </object>
+           <packing>
+             <property name="left_attach">0</property>
+-            <property name="top_attach">4</property>
++            <property name="top_attach">7</property>
+           </packing>
+         </child>
+       </object>
+     </child>
+   </object>
+   <object class="GtkAdjustment" id="adjustment1">
+-    <property name="lower">6</property>
+-    <property name="upper">65535</property>
+-    <property name="value">100</property>
+-    <property name="step_increment">10</property>
+-    <property name="page_increment">50</property>
++    <property name="lower">0.06</property>
++    <property name="upper">132</property>
++    <property name="value">1</property>
++    <property name="step_increment">0.5</property>
++    <property name="page_increment">1</property>
+   </object>
+   <object class="GtkAdjustment" id="adjustment2">
+     <property name="lower">0.01</property>
+@@ -248,4 +300,22 @@
+     <property name="icon_name">cmd/lc_spacepara2.png</property>
+     <property name="icon_size">1</property>
+   </object>
++  <object class="GtkImage" id="image_spacing_25">
++    <property name="visible">True</property>
++    <property name="can_focus">False</property>
++    <property name="icon_name">cmd/lc_spacepara2.png</property>
++    <property name="icon_size">1</property>
++  </object>
++  <object class="GtkImage" id="image_spacing_3">
++    <property name="visible">True</property>
++    <property name="can_focus">False</property>
++    <property name="icon_name">cmd/lc_spacepara2.png</property>
++    <property name="icon_size">1</property>
++  </object>
++  <object class="GtkImage" id="image_options">
++    <property name="visible">True</property>
++    <property name="can_focus">False</property>
++    <property name="icon_name">cmd/lc_paragraphdialog.png</property>
++    <property name="icon_size">1</property>
++  </object>
+ </interface>
+--- a/translations/source/vi/svx/messages.po
++++ b/translations/source/vi/svx/messages.po
+@@ -19466,6 +19466,24 @@ msgctxt "paralinespacingcontrol|label2"
+ msgid "Custom Value"
+ msgstr ""
+ 
++#. hstLS1
++#: svx/uiconfig/ui/paralinespacingcontrol.ui
++msgctxt "paralinespacingcontrol|spacing_25"
++msgid "Spacing: 2.5"
++msgstr "Giãn dòng: 2,5"
++
++#. hstLS2
++#: svx/uiconfig/ui/paralinespacingcontrol.ui
++msgctxt "paralinespacingcontrol|spacing_3"
++msgid "Spacing: 3"
++msgstr "Giãn dòng: 3,0"
++
++#. hstLS3
++#: svx/uiconfig/ui/paralinespacingcontrol.ui
++msgctxt "paralinespacingcontrol|options"
++msgid "Line Spacing Options..."
++msgstr "Tùy chọn giãn dòng"
++
+ #. wr59G
+ #: svx/uiconfig/ui/paralrspacing.ui:56
+ msgctxt "paralrspacing|beforetextindent|tooltip_text"
