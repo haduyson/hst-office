@@ -683,7 +683,7 @@ new file mode 100644
 index 0000000..f23b6c0
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,840 @@
+@@ -0,0 +1,908 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -712,9 +712,11 @@ index 0000000..f23b6c0
 +#include <com/sun/star/frame/DispatchDescriptor.hpp>
 +#include <com/sun/star/frame/StartModule.hpp>
 +#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
 +#include <com/sun/star/frame/XDispatchProviderInterception.hpp>
 +#include <com/sun/star/frame/XDispatchProviderInterceptor.hpp>
 +#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/util/URLTransformer.hpp>
 +#include <com/sun/star/util/XCloseable.hpp>
 +#include <comphelper/OAccessible.hxx>
 +#include <cppuhelper/implbase.hxx>
@@ -974,6 +976,19 @@ index 0000000..f23b6c0
 +
 +    sal_Int64 rows(std::u16string_view aRegion) const { return region(aRegion)->getAccessibleChildCount(); }
 +
++    /** Dispatches a command to the Start Center's own dispatcher, as the office's menus do. */
++    void dispatchToStartCenter(const OUString& rCommand)
++    {
++        util::URL aURL;
++        aURL.Complete = rCommand;
++        util::URLTransformer::create(m_xContext)->parseStrict(aURL);
++        uno::Reference<frame::XDispatchProvider> xProvider(mxFrame->getController(), uno::UNO_QUERY_THROW);
++        uno::Reference<frame::XDispatch> xDispatch = xProvider->queryDispatch(aURL, OUString(), 0);
++        CPPUNIT_ASSERT(xDispatch.is());
++        xDispatch->dispatch(aURL, {});
++        Scheduler::ProcessEventsToIdle();
++    }
++
 +    std::unique_ptr<UIObject> child(const OUString& rId)
 +    {
 +        std::unique_ptr<UIObject> xChild = mxRoot->get_child(rId);
@@ -1115,6 +1130,59 @@ index 0000000..f23b6c0
 +    press(u"Pinned files", 0, 1);
 +    CPPUNIT_ASSERT(!isPinned(aNames[1]));
 +    CPPUNIT_ASSERT_EQUAL(sal_Int64(0), rows(u"Pinned files"));
++}
++
++/** The row names of the recent documents table, top to bottom. */
++std::vector<OUString> recentNames(const uno::Reference<XAccessibleContext>& xRecent)
++{
++    std::vector<OUString> aRows;
++    for (sal_Int64 i = 0; i < xRecent->getAccessibleChildCount(); ++i)
++        aRows.push_back(context(xRecent->getAccessibleChild(i))->getAccessibleName());
++    return aRows;
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testReloadKeepsFocusedFile)
++{
++    // A file leaves the history (Remove from list in a row's menu) while another row has the
++    // focus: the focus stays on the file it was on. The focused file used to be looked up with the
++    // rows of the old list in the new list, so it landed on another file, or past the new list's end
++    // when the last row had the focus, and the office crashed.
++    openStartCenter();
++    canvas()->GrabFocus();
++    Scheduler::ProcessEventsToIdle();
++    key(KEY_TAB); // the search field
++    key(KEY_TAB); // the tiles
++    key(KEY_TAB); // the recent documents
++    CPPUNIT_ASSERT_EQUAL(u"Recent documents"_ustr, focused().first);
++    key(KEY_DOWN);
++    const std::vector<OUString> aBefore = recentNames(region(u"Recent documents"));
++    CPPUNIT_ASSERT_EQUAL(size_t(3), aBefore.size());
++    CPPUNIT_ASSERT_EQUAL(aBefore[1], focused().second);
++
++    // the file above the focused one leaves the history; the Start Center reads it again
++    SvtHistoryOptions::DeleteItem(EHistoryType::PickList, fileURL(aBefore[0]));
++    dispatchToStartCenter(u"vnd.org.libreoffice.recentdocs:ClearRecentFileList"_ustr);
++    CPPUNIT_ASSERT_EQUAL(sal_Int64(2), rows(u"Recent documents"));
++    CPPUNIT_ASSERT_EQUAL(u"Recent documents"_ustr, focused().first);
++    CPPUNIT_ASSERT_EQUAL(aBefore[1], focused().second);
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testClearListWithFocusedFile)
++{
++    // Clearing the recent documents while a lower row has the focus empties the table; the focused
++    // file used to be read from the empty list and the office crashed.
++    openStartCenter();
++    canvas()->GrabFocus();
++    Scheduler::ProcessEventsToIdle();
++    key(KEY_TAB);
++    key(KEY_TAB);
++    key(KEY_TAB);
++    key(KEY_END);
++    CPPUNIT_ASSERT_EQUAL(u"Recent documents"_ustr, focused().first);
++    SvtHistoryOptions::Clear(EHistoryType::PickList);
++    dispatchToStartCenter(u"vnd.org.libreoffice.recentdocs:ClearRecentFileList"_ustr);
++    CPPUNIT_ASSERT_EQUAL(sal_Int64(0), rows(u"Recent documents"));
++    CPPUNIT_ASSERT(focused().first != u"Recent documents");
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testTilesCreateDocuments)
