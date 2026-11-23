@@ -2327,7 +2327,7 @@ new file mode 100644
 index 0000000..c46e207
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.cxx
-@@ -0,0 +1,913 @@
+@@ -0,0 +1,924 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2415,6 +2415,17 @@ index 0000000..c46e207
 +    }
 +    maIcons.clear();
 +    mxSearchWindow.reset();
++    // The double buffering asked for in the constructor belongs to the whole frame, not to the canvas,
++    // and the frame stays when a document replaces the Start Center in it. Left on, it is copied over
++    // what a window paints straight onto itself instead of into its render context: Sheets' grid, with
++    // its cells, grid lines and cell cursor, stayed blank. Give it back and repaint the frame, in case
++    // the document painted before the Start Center went away.
++    if (SupportsDoubleBuffering())
++    {
++        RequestDoubleBuffering(false);
++        if (vcl::Window* pFrame = GetFrameWindow(); pFrame && !pFrame->isDisposed())
++            pFrame->Invalidate(InvalidateFlags::Children);
++    }
 +    Control::dispose();
 +}
 +
