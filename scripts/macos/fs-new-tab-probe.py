@@ -84,7 +84,8 @@ class Office:
                     data = json.load(f)
                 return data
             time.sleep(0.2)
-        log("call timeout (main thread did not run the callback)", fn)
+        if wait > 1:
+            log("call timeout (main thread did not run the callback)", fn)
         return {"timeout": fn}
 
     def state(self, tag):
@@ -162,6 +163,7 @@ def plus(office, which, title):
     subprocess.run(["screencapture", "-x", path], check=False)
     x, y, first_x, info = locate_tab_row(path)
     log("plus", which, x, y, info)
+    office.call("watch", 20, wait=0.1)  # 100 ms NSWindow trace, written after 20 s
     t = time.time()
     how = "click"
     if x is not None:

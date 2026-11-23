@@ -188,3 +188,40 @@ def disable_adopter(path):
         mod._STATE["listener"] = object()  # start() must not add it again
         return {"adopter": "removed" if listener is not None else "was not listening"}
     _post(path, work)
+
+
+def watch(path, seconds):
+    """Every 100 ms on the main thread: a compact NSWindow row set; only changes are kept (JSON list)."""
+    import threading
+    import time
+    ctx = XSCRIPTCONTEXT.getComponentContext()  # noqa: F821
+    end = time.time() + float(seconds)
+    log = []
+
+    def snap():
+        app = _send(_objc.objc_getClass(b"NSApplication"), "sharedApplication")
+        rows = []
+        for w in nswindows_rows()["windows"]:
+            if w["title"] and "ImplGetDef" not in w["title"] or w["visible"]:
+                rows.append("%s:%s%s%s%s t%s%s %s" % (w["n"], "V" if w["visible"] else "h", "F" if w["fullscreen"] else "",
+                                                     "S" if w["active_space"] else "o", "K" if w["key"] else "",
+                                                     w["tabbed"], "p%s" % w["parent"] if w["parent"] else "", w.get("frame")))
+        return {"key": _num(_send(app, "keyWindow")), "rows": rows}
+
+    class _W(unohelper.Base, XCallback):
+        def notify(self, data):
+            try:
+                s = snap()
+                if not log or log[-1]["s"] != s:
+                    log.append({"t": round(time.time(), 2), "s": s})
+            except Exception as error:  # noqa: BLE001
+                log.append({"t": round(time.time(), 2), "error": repr(error)})
+            if time.time() < end:
+                threading.Timer(0.1, post).start()
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(log, f, ensure_ascii=False, indent=1)
+
+    def post():
+        ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx).addCallback(_W(), None)
+    post()
