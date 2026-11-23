@@ -1,0 +1,287 @@
+HST Office: Writer's Columns button puts the selection in columns, like Word
+
+The Columns popup of the ribbon and of the sidebar (One, Two, Three, Left, Right;
+SID_ATTR_PAGE_COLUMN) always changed the columns of the current page style, so putting one
+paragraph in two columns put the whole document in two columns. It now works like Word:
+
+- with a selection, a new section with the columns goes around the selection (as Format Columns
+  with "Apply to: Selection" does); DOCX saves it as continuous section breaks;
+- with the cursor in a section with columns, that section changes. "One" removes a section that
+  does nothing but lay out columns (plain, unprotected, visible, unconditional, only column
+  attributes) and keeps its text; any other section stays with one column;
+- otherwise the page style changes, as before.
+Left and Right keep the 2:1 column widths the page style used. New columns get Word's spacing of
+1.27 cm (720 twips) instead of none; columns that already have a spacing keep it. Each click is
+one undo step. The popup and the sidebar show the columns of the section around the cursor.
+"More Options" in the popup opens Format Columns (with "Apply to") instead of the page style
+dialog, which stays the fallback where Format Columns is disabled.
+
+Test: CppunitTest_sw_uibase_uiview, testPageColumnType*.
+
+License: the upstream files remain under their original license (MPL-2.0).
+
+--- a/sw/qa/uibase/uiview/uiview.cxx
++++ b/sw/qa/uibase/uiview/uiview.cxx
+@@ -38,6 +38,17 @@
+ #include <swmodule.hxx>
+ #include <view.hxx>
+ #include <IDocumentRedlineAccess.hxx>
++#include <UndoManager.hxx>
++#include <doc.hxx>
++#include <fmtclds.hxx>
++#include <fmtftntx.hxx>
++#include <frmfmt.hxx>
++#include <ndtxt.hxx>
++#include <node.hxx>
++#include <pagedesc.hxx>
++#include <section.hxx>
++#include <svl/intitem.hxx>
++#include <svl/itemset.hxx>
+ 
+ /// Covers sw/source/uibase/uiview/ fixes.
+ class SwUibaseUiviewTest : public SwModelTestBase
+@@ -544,6 +555,244 @@ CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testRedlineRenderModeInvalidate)
+     comphelper::LibreOfficeKit::setPartInInvalidation(false);
+ }
+ 
++namespace
++{
++/// Types "A", "B" and "C" as three paragraphs; selects "B" when bSelectMiddle is set.
++void InsertThreeParagraphs(SwWrtShell& rWrtShell, bool bSelectMiddle)
++{
++    rWrtShell.Insert(u"A"_ustr);
++    rWrtShell.SplitNode();
++    rWrtShell.Insert(u"B"_ustr);
++    rWrtShell.SplitNode();
++    rWrtShell.Insert(u"C"_ustr);
++    if (bSelectMiddle)
++    {
++        rWrtShell.Up(/*bSelect=*/false);
++        rWrtShell.SttPara();
++        rWrtShell.EndPara(/*bSelect=*/true);
++    }
++}
++
++/// Clicks a button of the Columns popup (One=1, Two=2, Three=3, Left=4, Right=5).
++void ExecPageColumnType(SwWrtShell& rWrtShell, sal_Int16 nType)
++{
++    SfxInt16Item aItem(SID_ATTR_PAGE_COLUMN, nType);
++    rWrtShell.GetView().GetViewFrame().GetDispatcher()->ExecuteList(
++        SID_ATTR_PAGE_COLUMN, SfxCallMode::SYNCHRON, { &aItem });
++}
++
++/// The column type the Columns popup and the sidebar show.
++sal_Int16 GetPageColumnTypeState(SwWrtShell& rWrtShell)
++{
++    SfxPoolItemHolder aResult;
++    rWrtShell.GetView().GetViewFrame().GetDispatcher()->QueryState(SID_ATTR_PAGE_COLUMN,
++                                                                   aResult);
++    auto pItem = dynamic_cast<const SfxInt16Item*>(aResult.getItem());
++    CPPUNIT_ASSERT(pItem);
++    return pItem->GetValue();
++}
++
++sal_uInt16 GetPageStyleColumnCount(SwDoc& rDoc)
++{
++    return rDoc.GetPageDesc(0).GetMaster().GetCol().GetNumCols();
++}
++
++/// Text of the paragraphs inside the section, joined with '|'.
++OUString GetSectionText(const SwSectionFormat& rFormat)
++{
++    const SwSectionNode* pSectNd = rFormat.GetSectionNode();
++    CPPUNIT_ASSERT(pSectNd);
++    OUStringBuffer aText;
++    for (SwNodeOffset n = pSectNd->GetIndex() + 1; n < pSectNd->EndOfSectionIndex(); ++n)
++    {
++        if (const SwTextNode* pTextNd = pSectNd->GetNodes()[n]->GetTextNode())
++        {
++            if (!aText.isEmpty())
++                aText.append('|');
++            aText.append(pTextNd->GetText());
++        }
++    }
++    return aText.makeStringAndClear();
++}
++
++/// Puts a two-column section without column spacing around the selection, like an older
++/// HST Office or a DOCX import would have made it, then removes the selection.
++void InsertTwoColumnSection(SwWrtShell& rWrtShell, bool bFootnotesAtSectionEnd)
++{
++    SwDoc* pDoc = rWrtShell.GetDoc();
++    SwFormatCol aCol;
++    aCol.Init(2, 0, 10000);
++    SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<RES_COL, RES_COL, RES_FTN_AT_TXTEND,
++                                                    RES_FTN_AT_TXTEND>(pDoc->GetAttrPool()));
++    aSet.Put(aCol);
++    if (bFootnotesAtSectionEnd)
++        aSet.Put(SwFormatFootnoteAtTextEnd(FTNEND_ATTXTEND));
++    SwSectionData aData(SectionType::Content, UIName(u"Columns"_ustr));
++    rWrtShell.InsertSection(aData, &aSet);
++    rWrtShell.ClearMark();
++}
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeSelectionInsertsSection)
++{
++    // Given three paragraphs with the middle one selected:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++    const size_t nUndoCount = pDoc->GetUndoManager().GetUndoActionCount();
++
++    // When choosing "Two" in the Columns popup:
++    ExecPageColumnType(*pWrtShell, 2);
++
++    // Then only the selection is in two columns, like Word, and the page style keeps one.
++    // Without the fix the page style got two columns and there was no section.
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    const SwSectionFormat* pFormat = pDoc->GetSections()[0];
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(2), pFormat->GetCol().GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(u"B"_ustr, GetSectionText(*pFormat));
++    // Word's default spacing between columns: 1.27 cm = 720 twips.
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(720), pFormat->GetCol().GetGutterWidth(true));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(2), GetPageColumnTypeState(*pWrtShell));
++
++    // And one undo step takes it all back.
++    CPPUNIT_ASSERT_EQUAL(nUndoCount + 1, pDoc->GetUndoManager().GetUndoActionCount());
++    pWrtShell->Undo();
++    CPPUNIT_ASSERT(pDoc->GetSections().empty());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeSelectionLeftColumns)
++{
++    // Given three paragraphs with the middle one selected:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++
++    // When choosing "Left":
++    ExecPageColumnType(*pWrtShell, 4);
++
++    // Then the section has two columns, the text of the left one twice as wide, as for the
++    // page style, and the popup shows "Left".
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    const SwFormatCol& rCol = pDoc->GetSections()[0]->GetCol();
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(2), rCol.GetNumCols());
++    const sal_uInt16 nLeft = rCol.CalcPrtColWidth(0, rCol.GetWishWidth());
++    const sal_uInt16 nRight = rCol.CalcPrtColWidth(1, rCol.GetWishWidth());
++    CPPUNIT_ASSERT_LESS(20, std::abs(nLeft - 2 * nRight));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(4), GetPageColumnTypeState(*pWrtShell));
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeInColumnSection)
++{
++    // Given the cursor in a two-column section that only lays out columns:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++    InsertTwoColumnSection(*pWrtShell, /*bFootnotesAtSectionEnd=*/false);
++    CPPUNIT_ASSERT(!pWrtShell->HasSelection());
++
++    // Then the popup shows the columns of the section, not of the page style.
++    // Without the fix this was 1 (the page style).
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(2), GetPageColumnTypeState(*pWrtShell));
++
++    // When choosing "Three":
++    ExecPageColumnType(*pWrtShell, 3);
++
++    // Then the section has three columns with Word's spacing, the page style keeps one.
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(3), pDoc->GetSections()[0]->GetCol().GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(720), pDoc->GetSections()[0]->GetCol().GetGutterWidth(true));
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(3), GetPageColumnTypeState(*pWrtShell));
++
++    // When choosing "One":
++    const size_t nUndoCount = pDoc->GetUndoManager().GetUndoActionCount();
++    ExecPageColumnType(*pWrtShell, 1);
++
++    // Then the section, which only laid out columns, is gone and its text stays.
++    CPPUNIT_ASSERT(pDoc->GetSections().empty());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++    CPPUNIT_ASSERT_EQUAL(u"B"_ustr, pWrtShell->GetCursor()->GetPointNode().GetTextNode()->GetText());
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(1), GetPageColumnTypeState(*pWrtShell));
++
++    // And one undo step brings the three-column section back.
++    CPPUNIT_ASSERT_EQUAL(nUndoCount + 1, pDoc->GetUndoManager().GetUndoActionCount());
++    pWrtShell->Undo();
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(3), pDoc->GetSections()[0]->GetCol().GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(u"B"_ustr, GetSectionText(*pDoc->GetSections()[0]));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeOneKeepsSectionWithOtherSettings)
++{
++    // Given the cursor in a two-column section that also collects its footnotes:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++    InsertTwoColumnSection(*pWrtShell, /*bFootnotesAtSectionEnd=*/true);
++
++    // When choosing "One":
++    ExecPageColumnType(*pWrtShell, 1);
++
++    // Then the section stays, now with one column, and the page style is untouched.
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), pDoc->GetSections()[0]->GetCol().GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(u"B"_ustr, GetSectionText(*pDoc->GetSections()[0]));
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeNoSelectionChangesPageStyle)
++{
++    // Given three paragraphs, no selection and no section:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/false);
++    const size_t nUndoCount = pDoc->GetUndoManager().GetUndoActionCount();
++
++    // When choosing "Two":
++    ExecPageColumnType(*pWrtShell, 2);
++
++    // Then the page style gets two columns with Word's spacing (was 0 without the fix).
++    CPPUNIT_ASSERT(pDoc->GetSections().empty());
++    const SwFormatCol& rCol = pDoc->GetPageDesc(0).GetMaster().GetCol();
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(2), rCol.GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(720), rCol.GetGutterWidth(true));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(2), GetPageColumnTypeState(*pWrtShell));
++
++    // And one undo step takes it back.
++    CPPUNIT_ASSERT_EQUAL(nUndoCount + 1, pDoc->GetUndoManager().GetUndoActionCount());
++    pWrtShell->Undo();
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeSelectionDocxExport)
++{
++    // Given the middle paragraph put in two columns from the Columns popup:
++    createSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++    ExecPageColumnType(*pWrtShell, 2);
++
++    // When saving to DOCX:
++    save(TestFilter::DOCX);
++
++    // Then the paragraph is a section of its own behind a continuous section break, with two
++    // columns and Word's spacing, and the last section (the page style) has no columns.
++    xmlDocUniquePtr pXml = parseExport(u"word/document.xml"_ustr);
++    const OString aColumns = "/w:document/w:body/w:p/w:pPr/w:sectPr[w:type/@w:val='continuous']"
++                             "/w:cols[@w:num='2']"_ostr;
++    assertXPath(pXml, aColumns, 1);
++    assertXPath(pXml, aColumns, "space", u"720");
++    assertXPath(pXml, "/w:document/w:body/w:sectPr/w:cols[@w:num='2']"_ostr, 0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
