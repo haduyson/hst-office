@@ -29,9 +29,12 @@ echo "skia=${SAL_SKIA:-default}" >"$out/mode-$label.txt"
 # --nodefault suppresses the Start Center; the startcenter mode needs it shown
 nodefault=(--nodefault); [ "$mode" = startcenter ] && nodefault=()
 "$app/Contents/MacOS/soffice" --norestore --nologo "${nodefault[@]}" --accept="pipe,name=hstsheetgrid;urp;" \
-  "-env:UserInstallation=file://$profile" >"$out/soffice-$label.log" 2>&1 &
+  "-env:UserInstallation=file://$profile" >"$out/soffice-$label.txt" 2>&1 &
 pid=$!
 sleep 10
+sleep 15
+screencapture -x "$out/$label-launch.png" || true
+osascript -e 'tell application "System Events" to get name of every window of (first process whose unix id is '"$pid"')' >"$out/$label-windows.txt" 2>&1 || true
 URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" PYTHONPATH="$app/Contents/Resources:$pyhome" \
   perl -e 'alarm 420; exec @ARGV' "$py" "$here/sheets-grid-probe.py" "$pid" "$out" "$label" "$mode" \
   >"$out/driver-$label.log" 2>&1 || echo "driver exit $?" >>"$out/driver-$label.log"
