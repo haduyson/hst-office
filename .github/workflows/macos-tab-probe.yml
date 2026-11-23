@@ -1,28 +1,29 @@
-# SPDX-License-Identifier: LicenseRef-HST-Proprietary
-# Copyright (C) 2026 HASON TECH
+# SPDX-License-Identifier: AGPL-3.0-only
 name: macOS tab probe
-# Times document-tab actions (switch, close, "+" new tab, open file) of a macOS dmg on a GUI runner, windowed
-# and in native full screen, with a window sampler, screen recording and screenshots. Evidence only.
+# Probe branch variant: "open another tab" timing (new-tab-hang-probe.sh) for the 1.0.3 release dmg and a
+# desktop macOS run's dmg, on macOS 14 and 15. Evidence only.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag whose arm64 dmg is probed (used when run_id is empty)'
+        description: 'Release tag whose arm64 dmg is probed'
         type: string
-        default: v1.0.0-beta.2
+        default: v1.0.3
       run_id:
-        description: 'Desktop macOS run id whose dmg artifact is probed (overrides tag)'
+        description: 'Desktop macOS run id whose dmg artifact is probed'
         type: string
-        default: ''
+        default: '45105332888'
 permissions:
   contents: read
-concurrency:
-  group: macos-tab-probe
-  cancel-in-progress: false
 jobs:
   probe:
-    runs-on: macos-15
-    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+        build: [release, run]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read
@@ -36,53 +37,33 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
           RUN_ID: ${{ inputs.run_id }}
+          BUILD: ${{ matrix.build }}
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/dmg"
-          if [ -n "$RUN_ID" ]; then
+          if [ "$BUILD" = run ]; then
             [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id" >&2; exit 1; }
-            # the signed dmg (sign job) is what users install; the unsigned build artifact only when there is none
-            if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-                --name "hst-office-macos-arm64-dmg-signed-$RUN_ID" --dir "$RUNNER_TEMP/dmg"; then
-              echo "::warning::run $RUN_ID has no signed arm64 dmg: probing the unsigned one"
-              gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-                --name "hst-office-macos-arm64-dmg-$RUN_ID" --dir "$RUNNER_TEMP/dmg"
-            fi
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "hst-office-macos-arm64-dmg-signed-$RUN_ID" --dir "$RUNNER_TEMP/dmg"
           else
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg"
           fi
           find "$RUNNER_TEMP/dmg" -name '*.dmg'
-      - name: Probe the tab actions
+      - name: Probe opening another tab
         shell: bash
         run: |
           set -eu
-          count=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' | wc -l)
-          [ "$count" -eq 1 ] || { echo "expected one dmg, found $count" >&2; exit 1; }
-          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg')
-          echo "probing: $(basename "$dmg")"
-          bash scripts/macos/tab-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe"
+          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
+          bash scripts/macos/new-tab-hang-probe.sh "$dmg" "$RUNNER_TEMP/newtab"
       - name: Summarize
         if: ${{ always() }}
         shell: bash
         run: |
-          if [ -f "$RUNNER_TEMP/tabprobe/summary.md" ]; then
-            tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/tabprobe/summary.md"
-          fi
+          { echo "### ${{ matrix.os }} ${{ matrix.build }}"; cat "$RUNNER_TEMP/newtab/version.txt" 2>/dev/null; cat "$RUNNER_TEMP/newtab/summary.md" 2>/dev/null; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload probe evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: macos-tab-probe-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/tabprobe/
-            !${{ runner.temp }}/tabprobe/*.mov
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload screen recordings
-        if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: macos-tab-probe-video-${{ github.run_id }}
-          path: ${{ runner.temp }}/tabprobe/*.mov
+          name: newtab-${{ matrix.os }}-${{ matrix.build }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/newtab/
           if-no-files-found: error
           retention-days: 7
