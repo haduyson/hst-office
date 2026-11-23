@@ -43,6 +43,14 @@ def shot(name):
     return path
 
 
+# The welcome dialog opens modally and blocks UNO until closed: the tab probe's watcher closes it when seen.
+import importlib.util
+import threading
+_spec = importlib.util.spec_from_file_location("tab_probe", os.path.join(os.path.dirname(os.path.abspath(__file__)), "tab-probe.py"))
+tab_probe = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(tab_probe)
+threading.Thread(target=tab_probe.dismiss_welcome, args=(pid,), daemon=True).start()
+
 local = uno.getComponentContext()
 resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
 ctx = None
