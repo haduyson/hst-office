@@ -285,3 +285,322 @@ License: the upstream files remain under their original license (MPL-2.0).
  CPPUNIT_PLUGIN_IMPLEMENT();
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/sidebar/PageColumnControl.cxx
++++ b/sw/source/uibase/sidebar/PageColumnControl.cxx
+@@ -27,6 +27,7 @@
+ #include <sfx2/dispatch.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <svl/intitem.hxx>
++#include <svl/itemset.hxx>
+ #include <svx/pageitem.hxx>
+ #include <vcl/weld/Builder.hxx>
+ 
+@@ -115,7 +116,18 @@ IMPL_LINK( PageColumnControl, ColumnButtonClickHdl_Impl, weld::Button&, rButton,
+ IMPL_LINK_NOARG( PageColumnControl, MoreButtonClickHdl_Impl, weld::Button&, void )
+ {
+     if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
+-        pViewFrm->GetBindings().GetDispatcher()->Execute( FN_FORMAT_PAGE_COLUMN_DLG, SfxCallMode::ASYNCHRON );
++    {
++        // Format Columns has "Apply to" (selection, section, page style) like the buttons
++        // above; the page style dialog only covers the page style, so it is the fallback
++        // where Format Columns is unavailable (for example a drawing object selected).
++        SfxDispatcher* pDispatcher = pViewFrm->GetBindings().GetDispatcher();
++        SfxPoolItemHolder aState;
++        const sal_uInt16 nSlot
++            = pDispatcher->QueryState(FN_FORMAT_COLUMN, aState) >= SfxItemState::DEFAULT
++                  ? FN_FORMAT_COLUMN
++                  : FN_FORMAT_PAGE_COLUMN_DLG;
++        pDispatcher->Execute(nSlot, SfxCallMode::ASYNCHRON);
++    }
+     m_xControl->EndPopupMode();
+ }
+ 
+--- a/sw/source/uibase/uiview/viewtab.cxx
++++ b/sw/source/uibase/uiview/viewtab.cxx
+@@ -62,6 +62,12 @@
+ #include <osl/diagnose.h>
+ 
+ #include <IDocumentSettingAccess.hxx>
++#include <doc.hxx>
++#include <fmteiro.hxx>
++#include <swundo.hxx>
++#include <svl/itemiter.hxx>
++#include <sal/log.hxx>
++#include <algorithm>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -226,6 +232,187 @@ static void ResizeFrameCols(SwFormatCol& rCol,
+ }
+ 
+ // Here all changes to the tab bar will be shot again into the model.
++// Column layouts sent by the Columns popup (SID_ATTR_PAGE_COLUMN):
++// 1 - one column, 2 - two equal columns, 3 - three equal columns,
++// 4 - two columns, the left one twice as wide as the right one,
++// 5 - two columns, the right one twice as wide as the left one.
++constexpr sal_uInt16 PAGE_COLUMN_TYPE_ONE = 1;
++constexpr sal_uInt16 PAGE_COLUMN_TYPE_LAST = 5;
++
++// Spacing Word uses between new columns: 0.5 inch = 1.27 cm, in twips.
++constexpr sal_uInt16 DEFAULT_COLUMN_GUTTER = 720;
++
++// Builds the columns for a popup column type over an area nWidth twips wide.
++// Line settings come from rOld; its spacing is kept when it already has columns
++// with a non-zero spacing, otherwise the Word default spacing is used.
++static SwFormatCol lcl_MakeColumnsOfType(const SwFormatCol& rOld, sal_uInt16 nColumnType,
++                                         tools::Long nWidth)
++{
++    sal_uInt16 nCount = 2;
++    if (nColumnType == PAGE_COLUMN_TYPE_ONE)
++        nCount = 0;
++    else if (nColumnType == 3)
++        nCount = 3;
++
++    const sal_uInt16 nAct = static_cast<sal_uInt16>(std::clamp<tools::Long>(nWidth, 1, USHRT_MAX));
++    sal_uInt16 nGutterWidth = 0;
++    if (nCount)
++    {
++        if (rOld.GetNumCols() > 1)
++        {
++            nGutterWidth = rOld.GetGutterWidth(true);
++        }
++        if (!nGutterWidth)
++            nGutterWidth = DEFAULT_COLUMN_GUTTER;
++        // Spacing never takes more than half of a narrow area (table cell, small frame).
++        nGutterWidth = std::min<sal_uInt16>(nGutterWidth, nAct / (2 * (nCount - 1)));
++    }
++
++    SwFormatCol aCols(rOld);
++    aCols.Init(nCount, nGutterWidth, nAct);
++    aCols.SetWishWidth(nAct);
++    aCols.SetGutterWidth(nGutterWidth, nAct);
++    aCols.SetOrtho(false, nGutterWidth, nAct);
++
++    if (nColumnType == 4 || nColumnType == 5)
++    {
++        // The text of the wide column is twice the text of the narrow one; each column
++        // carries half of the spacing, as Init() laid it out.
++        const sal_uInt16 nHalfGutter = nGutterWidth / 2;
++        const sal_uInt16 nNarrow = (nAct - nGutterWidth) / 3 + nHalfGutter;
++        const sal_uInt16 nWide = nAct - nNarrow;
++        aCols.GetColumns()[0].SetWishWidth(nColumnType == 4 ? nWide : nNarrow);
++        aCols.GetColumns()[1].SetWishWidth(nColumnType == 4 ? nNarrow : nWide);
++    }
++    return aCols;
++}
++
++// The section around the cursor whose columns the Columns popup changes: the innermost
++// enclosing section with more than one column, not counting index sections. With a
++// selection both ends have to be in the same section (or the selection is exactly one
++// section), as in the Format Columns dialog.
++static const SwSection* lcl_GetColumnSection(SwWrtShell& rSh)
++{
++    const SwSection* pSect = rSh.GetCurrSection();
++    if (!pSect)
++        return nullptr;
++    if (rSh.HasSelection() && rSh.GetFullSelectedSectionCount() != 1)
++    {
++        const SwPaM* pCursor = rSh.GetCursor();
++        if (pCursor->GetNext() != pCursor || !pCursor->HasMark()
++            || SwDoc::GetCurrSection(*pCursor->GetMark()) != pSect)
++            return nullptr;
++    }
++    for (; pSect; pSect = pSect->GetParent())
++    {
++        const SectionType eType = pSect->GetType();
++        const SwSectionFormat* pFormat = pSect->GetFormat();
++        if (eType != SectionType::ToxHeader && eType != SectionType::ToxContent && pFormat
++            && pFormat->GetCol().GetNumCols() > 1)
++            return pSect;
++    }
++    return nullptr;
++}
++
++// A new section with columns can be put around the selection: same conditions as the
++// "Selection" entry of the Format Columns dialog.
++static bool lcl_CanInsertColumnSection(SwWrtShell& rSh)
++{
++    if (!rSh.HasSelection() || !rSh.IsInsRegionAvailable())
++        return false;
++    const SwSection* pSect = rSh.GetCurrSection();
++    if (!pSect)
++        return true;
++    const SwPaM* pCursor = rSh.GetCursor();
++    return rSh.GetFullSelectedSectionCount() != 1 && pCursor->HasMark()
++           && SwDoc::GetCurrSection(*pCursor->GetMark()) == pSect;
++}
++
++// True when the section does nothing but lay out columns: plain content, not protected,
++// hidden, conditional or linked, and no format attribute besides the column ones.
++// Removing such a section on "one column" keeps its text and nothing else is lost.
++static bool lcl_IsColumnsOnlySection(const SwSection& rSect)
++{
++    if (rSect.GetType() != SectionType::Content || rSect.IsProtectFlag() || rSect.IsHidden()
++        || !rSect.GetCondition().isEmpty())
++        return false;
++    const SwSectionFormat* pFormat = rSect.GetFormat();
++    if (!pFormat)
++        return false;
++    for (SfxItemIter aIter(pFormat->GetAttrSet()); !aIter.IsAtEnd(); aIter.NextItem())
++    {
++        const SfxPoolItem* pItem = aIter.GetCurItem();
++        switch (pItem->Which())
++        {
++            case RES_COL:
++            case RES_COLUMNBALANCE:
++            case RES_FRM_SIZE:
++                break;
++            case RES_FRAMEDIR:
++                if (static_cast<const SvxFrameDirectionItem*>(pItem)->GetValue()
++                    != SvxFrameDirection::Environment)
++                    return false;
++                break;
++            case RES_PROTECT:
++                if (static_cast<const SvxProtectItem*>(pItem)->IsContentProtected())
++                    return false;
++                break;
++            case RES_EDIT_IN_READONLY:
++                if (static_cast<const SwFormatEditInReadonly*>(pItem)->GetValue())
++                    return false;
++                break;
++            default:
++                return false;
++        }
++    }
++    return true;
++}
++
++// Columns popup inside a section with columns: "one column" removes a section that only
++// lays out columns and otherwise drops its columns; the other types change its columns.
++static void lcl_ApplyColumnsToSection(SwWrtShell& rSh, const SwSection& rSect,
++                                      sal_uInt16 nColumnType, tools::Long nFallbackWidth)
++{
++    const SwSectionFormat* pFormat = rSect.GetFormat();
++    const size_t nPos = rSh.GetSectionFormatPos(*pFormat);
++    if (nColumnType == PAGE_COLUMN_TYPE_ONE && lcl_IsColumnsOnlySection(rSect))
++    {
++        rSh.StartUndo(SwUndoId::DELSECTION);
++        rSh.DelSectionFormat(nPos);
++        rSh.EndUndo(SwUndoId::DELSECTION);
++        return;
++    }
++
++    tools::Long nWidth = rSh.GetSectionWidth(*pFormat);
++    if (nWidth <= 0)
++        nWidth = nFallbackWidth;
++    SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<RES_COL, RES_COL>(rSh.GetAttrPool()));
++    aSet.Put(lcl_MakeColumnsOfType(pFormat->GetCol(), nColumnType, nWidth));
++    SwSectionData aData(rSect);
++    rSh.StartUndo(SwUndoId::CHGSECTION);
++    rSh.UpdateSection(nPos, aData, &aSet);
++    rSh.EndUndo(SwUndoId::CHGSECTION);
++}
++
++// Columns popup with a selection: put a new section with the columns around it, like
++// Format Columns with "Apply to: Selection". Saved to DOCX as continuous section breaks.
++static void lcl_InsertColumnSection(SwWrtShell& rSh, sal_uInt16 nColumnType,
++                                    tools::Long nFallbackWidth)
++{
++    SwRect aRect;
++    rSh.CalcBoundRect(aRect, RndStdIds::FLY_AS_CHAR);
++    tools::Long nWidth = aRect.Width();
++    if (nWidth <= 0)
++        nWidth = nFallbackWidth;
++
++    SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<RES_COL, RES_COL>(rSh.GetAttrPool()));
++    aSet.Put(lcl_MakeColumnsOfType(SwFormatCol(), nColumnType, nWidth));
++    SwSectionData aSection(SectionType::Content, UIName(rSh.GetUniqueSectionName()));
++    rSh.StartUndo(SwUndoId::INSSECTION);
++    rSh.InsertSection(aSection, &aSet);
++    rSh.EndUndo(SwUndoId::INSSECTION);
++}
++
+ void SwView::ExecTabWin( SfxRequest const & rReq )
+ {
+     SwWrtShell &rSh         = GetWrtShell();
+@@ -560,57 +747,35 @@ void SwView::ExecTabWin( SfxRequest const & rReq )
+         if ( pReqArgs )
+         {
+             const SfxInt16Item aColumnItem( static_cast<const SfxInt16Item&>(pReqArgs->Get(nSlot)) );
+-            const sal_uInt16 nPageColumnType = aColumnItem.GetValue();
+-
+-            // nPageColumnType =
+-            // 1 - single-columned page
+-            // 2 - two-columned page
+-            // 3 - three-columned page
+-            // 4 - two-columned page with left column width of 2/3 of page width
+-            // 5 - two-columned page with right column width of 2/3 of page width
+-
+-            sal_uInt16 nCount = 2;
+-            if ( nPageColumnType == 1 )
+-            {
+-                nCount = 0;
+-            }
+-            else if ( nPageColumnType == 3 )
++            const sal_Int16 nRequestedType = aColumnItem.GetValue();
++            if (nRequestedType < PAGE_COLUMN_TYPE_ONE || nRequestedType > PAGE_COLUMN_TYPE_LAST)
+             {
+-                nCount = 3;
++                SAL_WARN("sw.ui", "SID_ATTR_PAGE_COLUMN: unknown column type " << nRequestedType);
++                break;
+             }
+-
+-            const sal_uInt16 nGutterWidth = 0;
++            const sal_uInt16 nPageColumnType = static_cast<sal_uInt16>(nRequestedType);
+ 
+             const SvxLRSpaceItem aLR( rDesc.GetMaster().GetLRSpace() );
+             const tools::Long nLeft = aLR.ResolveLeft();
+             const tools::Long nRight = aLR.ResolveRight({});
+             const tools::Long nWidth = nPageWidth - nLeft - nRight;
+ 
+-            SwFormatCol aCols( rDesc.GetMaster().GetCol() );
+-            aCols.Init( nCount, nGutterWidth, nWidth );
+-            aCols.SetWishWidth( nWidth );
+-            aCols.SetGutterWidth( nGutterWidth, nWidth );
+-            aCols.SetOrtho( false, nGutterWidth, nWidth );
+-
+-            tools::Long nColumnLeft = 0;
+-            tools::Long nColumnRight = 0;
+-            if ( nPageColumnType == 4 )
++            // Like Word: the section around the cursor, else a new section around the
++            // selection, else the page style.
++            if (const SwSection* pColumnSection = lcl_GetColumnSection(rSh))
+             {
+-                nColumnRight = static_cast<tools::Long>(nWidth/3);
+-                nColumnLeft = nWidth - nColumnRight;
+-                aCols.GetColumns()[0].SetWishWidth( nColumnLeft );
+-                aCols.GetColumns()[1].SetWishWidth( nColumnRight );
++                lcl_ApplyColumnsToSection(rSh, *pColumnSection, nPageColumnType, nWidth);
++                break;
+             }
+-            else if ( nPageColumnType == 5 )
++            if (nPageColumnType != PAGE_COLUMN_TYPE_ONE && lcl_CanInsertColumnSection(rSh))
+             {
+-                nColumnLeft = static_cast<tools::Long>(nWidth/3);
+-                nColumnRight = nWidth - nColumnLeft;
+-                aCols.GetColumns()[0].SetWishWidth( nColumnLeft );
+-                aCols.GetColumns()[1].SetWishWidth( nColumnRight );
++                lcl_InsertColumnSection(rSh, nPageColumnType, nWidth);
++                break;
+             }
+ 
+             SwPageDesc aDesc( rDesc );
+-            aDesc.GetMaster().SetFormatAttr( aCols );
++            aDesc.GetMaster().SetFormatAttr(
++                lcl_MakeColumnsOfType(rDesc.GetMaster().GetCol(), nPageColumnType, nWidth));
+             rSh.ChgPageDesc( rSh.GetCurPageDesc(), aDesc );
+         }
+         break;
+@@ -1442,8 +1607,10 @@ void SwView::StateTabWin(SfxItemSet& rSet)
+         {
+             sal_uInt16 nColumnType = 0;
+ 
+-            const SwFrameFormat& rMaster = rDesc.GetMaster();
+-            const SwFormatCol& aCol(rMaster.GetCol());
++            // Inside a section with columns the Columns popup works on that section.
++            const SwSection* pColumnSection = lcl_GetColumnSection(rSh);
++            const SwFormatCol& aCol(pColumnSection ? pColumnSection->GetFormat()->GetCol()
++                                                   : rDesc.GetMaster().GetCol());
+             const sal_uInt16 nCols = aCol.GetNumCols();
+             if ( nCols == 0 )
+             {
