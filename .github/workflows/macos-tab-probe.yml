@@ -48,7 +48,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/dmg"
           if [ "$BUILD" = run ]; then
             [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id" >&2; exit 1; }
-            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "hst-office-macos-arm64-dmg-signed-$RUN_ID" --dir "$RUNNER_TEMP/dmg"
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "hst-office-macos-arm64-dmg-signed-$RUN_ID" --dir "$RUNNER_TEMP/dmg" \
+              || gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "hst-office-macos-arm64-dmg-$RUN_ID" --dir "$RUNNER_TEMP/dmg"
           else
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg"
           fi
