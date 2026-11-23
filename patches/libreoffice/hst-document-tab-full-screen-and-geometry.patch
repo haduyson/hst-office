@@ -14,6 +14,11 @@ active one: keys still reached it, clicks did not.
   still visible while the new one was selected): a tab that is not selected is hidden by the
   selection and stays in the group; a tab that is still selected selects the other shown tab of its
   native group instead of leaving it; only without one it leaves and orders out as before.
+- The native tab bar of such a group stays hidden (lcl_hideNativeTabBar, also one run loop turn
+  later: AppKit showed it after the window was added, 28 px above the HST tab strip).
+- vcl/osx/salframeview.mm windowDidExitFullScreen -> AquaSalFrame::splitNativeTabs: after full screen
+  the parked tabs leave the native group and stay hidden, so the windowed office has no native tab
+  bar next to its own strip (runner probe of the first version: three native tabs after leaving).
 
 Windowed (all platforms): DocumentTabGroup::copyGeometry gave the incoming tab the geometry of the
 shown tab through SystemWindow::SetWindowState, whose #96568 check moves a frame placed exactly over
@@ -31,12 +36,72 @@ License: modified upstream files keep their license (MPL-2.0); the new test file
 Test: CppunitTest_vcl_hst_window_state_in_place; macOS runner probe scripts/macos/fs-new-tab-probe.sh
 (branch probe/mac-new-tab-hang).
 ---
+--- a/vcl/inc/osx/salframe.h
++++ b/vcl/inc/osx/salframe.h
+@@ -139,6 +139,9 @@
+     virtual void                SetTabGroupMember( bool bMember ) override;
+     virtual void                SetTabGroupId( sal_uInt32 nGroup ) override;
+     void                        joinNativeFullScreenTabs();
++    /// HST Office: after native full screen, the other windows of this window's native tab group
++    /// (parked document tabs) leave the group and stay hidden; the HST tab strip switches them.
++    void                        splitNativeTabs();
+     virtual void                SetMenu( SalMenu* pSalMenu ) override;
+     virtual void                Show( bool bVisible, bool bNoActivate = false ) override;
+     virtual void                SetMinClientSize( tools::Long nWidth, tools::Long nHeight )
 --- a/vcl/osx/salframe.cxx
 +++ b/vcl/osx/salframe.cxx
-@@ -455,6 +455,13 @@
+@@ -428,6 +428,44 @@
+             [NSString stringWithFormat: @"org.hasontech.hstoffice.document.%u", nGroup]];
+ }
+ 
++// HST Office: the native tab bar of a full screen document tab group stays hidden (the HST tab strip
++// is the one the user sees). AppKit shows it when the group gets its second window, sometimes only
++// after the window was added, so it is checked now and once more on the next run loop turn.
++static void lcl_hideNativeTabBar( NSWindow* pWindow )
++{
++    if( !pWindow )
++        return;
++    NSWindowTabGroup* pGroup = [pWindow tabGroup];
++    if( pGroup && [pGroup isTabBarVisible] )
++        [pWindow toggleTabBar: nil];
++    [pWindow retain];
++    dispatch_async( dispatch_get_main_queue(), ^{
++        NSWindowTabGroup* pLater = [pWindow tabGroup];
++        if( pLater && [pLater isTabBarVisible] && [[pLater windows] count] > 1 )
++            [pWindow toggleTabBar: nil];
++        [pWindow release];
++    } );
++}
++
++void AquaSalFrame::splitNativeTabs()
++{
++    OSX_SALDATA_RUNINMAIN( splitNativeTabs() )
++
++    if( !mpNSWindow || mbHeadlessMode || ([mpNSWindow styleMask] & NSWindowStyleMaskFullScreen) )
++        return;
++    NSArray<NSWindow*>* pTabs = [[[mpNSWindow tabbedWindows] copy] autorelease];
++    if( !pTabs )
++        return;
++    NSWindow* pSelected = [[mpNSWindow tabGroup] selectedWindow];
++    for( NSWindow* pTab in pTabs )
++    {
++        if( pTab == pSelected )
++            continue;
++        [[pTab tabGroup] removeWindow: pTab];
++        [pTab orderOut: NSApp];
++    }
++}
++
+ void AquaSalFrame::joinNativeFullScreenTabs()
+ {
+     if( !mpNSWindow || mbHeadlessMode || [mpNSWindow tabbedWindows] != nil )
+@@ -453,8 +491,14 @@
+         [mpNSWindow setFrame: [pWindow frame] display: NO];
+         [pWindow addTabbedWindow: mpNSWindow ordered: NSWindowAbove];
          NSWindowTabGroup* pGroup = [pWindow tabGroup];
-         if( pGroup && [pGroup isTabBarVisible] )
-             [pWindow toggleTabBar: nil];
+-        if( pGroup && [pGroup isTabBarVisible] )
+-            [pWindow toggleTabBar: nil];
++        lcl_hideNativeTabBar( pWindow );
 +        // The new tab is the shown one: select it now, so the previous tab is hidden by the
 +        // selection and stays in the group. Left selected, the previous tab was still visible when
 +        // the tab group parked it, Hide() took it out of the group, and the new tab stayed behind
@@ -47,12 +112,14 @@ Test: CppunitTest_vcl_hst_window_state_in_place; macOS runner probe scripts/maco
          break;
      }
  }
-@@ -665,11 +672,33 @@
+@@ -665,11 +709,38 @@
          {
              if( [mpNSWindow tabbedWindows] == nil )
                  [mpNSWindow orderOut: NSApp];
 -            else if( [mpNSWindow isVisible] )
-+            else if( [[mpNSWindow tabGroup] selectedWindow] == mpNSWindow )
++            else if( [[mpNSWindow tabGroup] selectedWindow] != mpNSWindow )
++                lcl_hideNativeTabBar( [[mpNSWindow tabGroup] selectedWindow] );
++            else
              {
 -                // still the selected tab (nothing replaced it): leave the group before hiding
 -                [[mpNSWindow tabGroup] removeWindow: mpNSWindow];
@@ -76,7 +143,10 @@ Test: CppunitTest_vcl_hst_window_state_in_place; macOS runner probe scripts/maco
 +                    }
 +                }
 +                if( pShown )
++                {
 +                    [[mpNSWindow tabGroup] setSelectedWindow: pShown];
++                    lcl_hideNativeTabBar( pShown );
++                }
 +                else
 +                {
 +                    [[mpNSWindow tabGroup] removeWindow: mpNSWindow];
@@ -85,6 +155,20 @@ Test: CppunitTest_vcl_hst_window_state_in_place; macOS runner probe scripts/maco
              }
          }
          else
+--- a/vcl/osx/salframeview.mm
++++ b/vcl/osx/salframeview.mm
+@@ -856,6 +856,11 @@
+     (void)pNotification;
+     SolarMutexGuard aGuard;
+ 
++    // HST Office: the parked document tabs that shared the full screen Space as native tabs
++    // leave the group, so the windowed office shows no native tab bar next to its own tab strip.
++    if( AquaSalFrame::isAlive( mpFrame ) )
++        mpFrame->splitNativeTabs();
++
+     if( AquaSalFrame::isAlive( mpFrame) && mpFrame->mbNativeFullScreen )
+     {
+         mpFrame->mbNativeFullScreen = false;
 --- a/vcl/source/window/syswin.cxx
 +++ b/vcl/source/window/syswin.cxx
 @@ -338,6 +338,21 @@
