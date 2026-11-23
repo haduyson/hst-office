@@ -207,7 +207,7 @@ def plus(office, which, title):
     time.sleep(1.5)
     typed = office.state(f"{which}-after-typing")
     shot(f"{which}-after-typing")
-    got = any((f.get("text") or "").find("zq7") >= 0 for f in (typed or {}).get("frames", []))
+    got = any((f.get("text") or "").lower().find("zq7") >= 0 for f in (typed or {}).get("frames", []))
     ns = (typed or {}).get("ns", {})
     print(f"RESULT {LABEL} {which}: {how}; frames {n0}->{frames_count(after)}; typed reached a document: {got}; "
           f"app key={ns.get('app', {}).get('key')} modal={ns.get('app', {}).get('modal')} "
@@ -271,6 +271,30 @@ def main():
     office.state("ready")
     plus(office, "plus-1", "")
     plus(office, "plus-2", "")
+    if LAYOUT == "fullscreen":
+        # leave native full screen with several tabs, then switch tabs by real clicks
+        front()
+        rc, out = osa(f'tell application "System Events" to tell {PROC} to set value of attribute "AXFullScreen" '
+                      f'of window 1 to false', 20)
+        log("leave fullscreen", rc, out)
+        time.sleep(6)
+        shot("left-fullscreen")
+        st = office.state("left-fullscreen")
+        vis = [(w["n"], w["title"][:14], "F" if w["fullscreen"] else "", "S" if w["active_space"] else "o", w.get("frame"))
+               for w in (st or {}).get("ns", {}).get("windows", []) if w.get("visible") and w.get("title")]
+        print(f"RESULT {LABEL} left full screen: visible {vis}", flush=True)
+        path = f"{OUT}/{LABEL}-left-locate.png"
+        subprocess.run(["screencapture", "-x", path], check=False)
+        _x, _y, _f, info = locate_tab_row(path)
+        closes = [x for x in info.get("x_glyphs", []) if x > 60]
+        for i, cx in enumerate(closes[:4]):
+            subprocess.run(["cliclick", f"c:{cx - 45},{info.get('x_row')}"], check=False, timeout=20)
+            time.sleep(1.5)
+            st = office.state(f"left-click-tab{i + 1}")
+            act = [f["title"] for f in (st or {}).get("frames", []) if f.get("active")]
+            vis = [(w["title"][:14], w.get("frame")) for w in (st or {}).get("ns", {}).get("windows", [])
+                   if w.get("visible") and w.get("title") and "ImplGetDef" not in w["title"]]
+            print(f"RESULT {LABEL} after leaving: click tab {i + 1}: active {act} visible {vis}", flush=True)
     office.state("end")
     os._exit(0)
 
