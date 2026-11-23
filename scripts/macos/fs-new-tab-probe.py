@@ -105,28 +105,45 @@ def fullscreen(title):
     time.sleep(5)
 
 
-def find_plus_anywhere(path):
+def locate_tab_row(path):
+    """(plus_x, plus_y, first_tab_x) of the document tab strip: the row (y 60-420) with the most tab close
+    glyphs (a small dark "x"), the "+" (a small dark cross) right of its last "x"."""
     width, height, rows, bpp = TP.png_pixels(path)
 
-    def dark(x, y):
+    def lum(x, y):
         i = x * bpp
-        return (rows[y][i] + rows[y][i + 1] + rows[y][i + 2]) // 3 < 120
+        return (rows[y][i] + rows[y][i + 1] + rows[y][i + 2]) // 3
 
-    best, xy = 0, (None, None)
-    for y in range(60, min(420, height - 7)):
-        for x in range(8, width - 8):
-            if not dark(x, y):
+    def dark(x, y):
+        return lum(x, y) < 150
+
+    def light(x, y):
+        return lum(x, y) > 190
+
+    xs, pluses = {}, {}
+    for y in range(64, min(420, height - 6)):
+        for x in range(6, width - 6):
+            if lum(x, y) >= 110:
                 continue
-            cross = sum(dark(x + d, y) for d in range(-5, 6)) + sum(dark(x, y + d) for d in range(-5, 6))
-            if cross < 14:
-                continue
-            corners = sum(dark(x + dx, y + dy) for dx in (-4, 4) for dy in (-4, 4))
-            # the "+" is thin: its row and column neighbours 2 px off the cross are light
-            side = sum(dark(x + dx, y + dy) for dx in (-2, 2) for dy in (-2, 2))
-            score = cross - 3 * corners - 3 * side
-            if score > best:
-                best, xy = score, (x, y)
-    return xy[0], xy[1], best
+            main = sum(dark(x + d, y + d) or dark(x + d + 1, y + d) for d in range(-3, 4))
+            anti = sum(dark(x + d, y - d) or dark(x + d + 1, y - d) for d in range(-3, 4))
+            if main >= 6 and anti >= 6 and light(x, y - 3) and light(x, y + 3) and light(x - 3, y) and light(x + 3, y):
+                xs.setdefault(y, []).append(x)
+            row = sum(dark(x + d, y) for d in range(-4, 5))
+            col = sum(dark(x, y + d) for d in range(-4, 5))
+            if row >= 8 and col >= 8 and all(light(x + a, y + b) for a in (-3, 3) for b in (-3, 3)):
+                pluses.setdefault(y, []).append(x)
+    best_y = max(xs, key=lambda y: len(set(v // 20 for v in xs[y])), default=None)
+    if best_y is None:
+        return None, None, None, {}
+    last_x = max(xs[best_y])
+    cands = [(abs(y - best_y), x, y) for y, v in pluses.items() if abs(y - best_y) <= 3 for x in v
+             if last_x < x < last_x + 80]
+    info = {"x_row": best_y, "x_glyphs": sorted(set(xs[best_y])), "plus_cands": sorted(cands)[:5]}
+    if not cands:
+        return None, None, min(xs[best_y]), info
+    _d, px, py = sorted(cands)[0]
+    return px, py, min(xs[best_y]), info
 
 
 def frames_count(state):
@@ -143,11 +160,11 @@ def plus(office, which, title):
     n0 = frames_count(before)
     path = f"{OUT}/{LABEL}-{which}-locate.png"
     subprocess.run(["screencapture", "-x", path], check=False)
-    x, y, score = find_plus_anywhere(path)
-    log("plus", which, x, y, score)
+    x, y, first_x, info = locate_tab_row(path)
+    log("plus", which, x, y, info)
     t = time.time()
     how = "click"
-    if x is not None and score >= 14:
+    if x is not None:
         subprocess.run(["cliclick", f"m:{x},{y}", "w:300", f"c:{x},{y}"], check=False, timeout=20)
         time.sleep(1.2)
         shot(f"{which}-popup")
@@ -173,9 +190,18 @@ def plus(office, which, title):
         shot(f"{which}-after-dispatch")
     subprocess.run(["sample", str(PID), "5", "-file", f"{OUT}/{LABEL}-{which}-sample.txt"], check=False,
                    capture_output=True)
+    # switch: click the first tab (its label, left of its close glyph), as the owner tried
+    if first_x is not None and y is not None:
+        fx = first_x + 30  # inside the first tab label
+        subprocess.run(["cliclick", f"c:{fx},{y}"], check=False, timeout=20)
+        time.sleep(2)
+        sw = office.state(f"{which}-after-tab-click")
+        shot(f"{which}-after-tab-click")
+        print(f"RESULT {LABEL} {which}: tab click at {fx},{y}: active frame "
+              f"{[f['title'] for f in (sw or {}).get('frames', []) if f.get('active')]}", flush=True)
     # input test: type into whatever has the key focus
-    front()
     osa('tell application "System Events" to keystroke "zq7"')
+    osa('tell application "System Events" to key code 36')
     time.sleep(1.5)
     typed = office.state(f"{which}-after-typing")
     shot(f"{which}-after-typing")
@@ -194,30 +220,21 @@ def main():
     office.state("start")
     front()
     osa('tell application "System Events" to keystroke "n" using command down')
-    time.sleep(5)
+    time.sleep(6)
     log("calc", office.call("load", "private:factory/scalc"))
-    time.sleep(5)
-    st = office.state("writer+calc")
-    titles = [f["title"] for f in st.get("frames", [])]
-    writer = next((t for t in titles if t and "Không tên 1" in t), titles[0] if titles else "")
-    calc = next((t for t in titles if t != writer), "")
-    log("writer", writer, "calc", calc)
-    if LAYOUT == "both-fs":
-        office.call("to_front", calc)
-        time.sleep(1)
-        fullscreen(calc)
-    office.call("to_front", writer)
-    time.sleep(2)
-    fullscreen(writer)
-    shot("writer-fs")
-    office.state("writer-fullscreen")
-    plus(office, "writer-plus", writer)
-    # Sheets: its window to the front (full screen in both-fs), then "+"
-    office.call("to_front", calc)
-    time.sleep(3)
-    if LAYOUT == "writer-fs":
-        fullscreen(calc)
-    plus(office, "calc-plus", calc)
+    time.sleep(6)
+    office.state("writer+calc")
+    shot("two-tabs")
+    if LAYOUT == "fullscreen":
+        front()
+        rc, out = osa(f'tell application "System Events" to tell {PROC} to set value of attribute "AXFullScreen" '
+                      f'of window 1 to true', 20)
+        log("fullscreen", rc, out)
+        time.sleep(6)
+    shot("ready")
+    office.state("ready")
+    plus(office, "plus-1", "")
+    plus(office, "plus-2", "")
     office.state("end")
     os._exit(0)
 

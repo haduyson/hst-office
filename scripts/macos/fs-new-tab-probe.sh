@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
 # Copyright (C) 2026 HASON TECH
-# Native full screen "+" probe: fs-new-tab-probe.sh <dmg> <out-dir> <adopter: on|off>
+# Tab strip "+" probe: fs-new-tab-probe.sh <dmg> <out-dir> <adopter: on|off> [tips: on|off]
 # Starts the app like a user (LaunchServices, Start Center first), per layout writer-fs and both-fs. Evidence only.
 set -Eeuo pipefail
-[ $# -eq 3 ] || { echo "usage: $0 <dmg> <out-dir> <on|off>" >&2; exit 64; }
-dmg="$1"; out="$2"; adopter="$3"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ $# -ge 3 ] || { echo "usage: $0 <dmg> <out-dir> <on|off> [on|off]" >&2; exit 64; }
+dmg="$1"; out="$2"; adopter="$3"; tips="${4:-on}"; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/macos/probe-lib.sh
 . "$here/probe-lib.sh"
 mkdir -p "$out"; work="$(mktemp -d)"; mnt="$work/mnt"; mkdir -p "$mnt"
@@ -19,8 +19,8 @@ py="$(find "$app/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-c
 pyuno="$(find "$app/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)"
 pyhome="$(dirname "$pyuno")"
 : >"$out/summary.md"
-for layout in writer-fs both-fs; do
-  label="$layout-adopter-$adopter"
+for layout in fullscreen windowed; do
+  label="$layout-adopter-$adopter-tips-$tips"
   profile="$work/profile-$layout"; mkdir -p "$profile/user"
   cat >"$profile/user/registrymodifications.xcu" <<'XCU'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -28,6 +28,9 @@ for layout in writer-fs both-fs; do
 <item oor:path="/org.hasontech.hstoffice.Welcome"><prop oor:name="Shown" oor:op="fuse"><value>true</value></prop></item>
 </oor:items>
 XCU
+  if [ "$tips" = off ]; then
+    sed -i '' 's#</oor:items>#<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="ShowTipOfTheDay" oor:op="fuse"><value>false</value></prop></item>\n</oor:items>#' "$profile/user/registrymodifications.xcu"
+  fi
   init_profile "$app" "$profile"
   env -u URE_BOOTSTRAP -u PYTHONPATH -u PYTHONHOME open -n -a "$app" --args --norestore \
     "-env:UserInstallation=file://$profile" "--accept=pipe,name=hstfs$layout;urp;"

@@ -21,9 +21,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { build: run, adopter: 'on' }
-          - { build: run, adopter: 'off' }
-          - { build: release, adopter: 'on' }
+          - { build: run, adopter: 'on', tips: 'on' }
+          - { build: run, adopter: 'off', tips: 'on' }
+          - { build: run, adopter: 'on', tips: 'off' }
+          - { build: release, adopter: 'on', tips: 'on' }
+          - { build: release, adopter: 'on', tips: 'off' }
     runs-on: macos-15
     timeout-minutes: 75
     permissions:
@@ -55,17 +57,17 @@ jobs:
         run: |
           set -eu
           dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
-          bash scripts/macos/fs-new-tab-probe.sh "$dmg" "$RUNNER_TEMP/newtab" "${{ matrix.adopter }}"
+          bash scripts/macos/fs-new-tab-probe.sh "$dmg" "$RUNNER_TEMP/newtab" "${{ matrix.adopter }}" "${{ matrix.tips }}"
       - name: Summarize
         if: ${{ always() }}
         shell: bash
         run: |
-          { echo "### ${{ matrix.build }} adopter ${{ matrix.adopter }}"; cat "$RUNNER_TEMP/newtab/version.txt" 2>/dev/null; cat "$RUNNER_TEMP/newtab/summary.md" 2>/dev/null; } | tee -a "$GITHUB_STEP_SUMMARY"
+          { echo "### ${{ matrix.build }} adopter ${{ matrix.adopter }} tips ${{ matrix.tips }}"; cat "$RUNNER_TEMP/newtab/version.txt" 2>/dev/null; cat "$RUNNER_TEMP/newtab/summary.md" 2>/dev/null; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload probe evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: fsnewtab-${{ matrix.build }}-${{ matrix.adopter }}-${{ github.run_id }}
+          name: fsnewtab-${{ matrix.build }}-${{ matrix.adopter }}-${{ matrix.tips }}-${{ github.run_id }}
           path: ${{ runner.temp }}/newtab/
           if-no-files-found: error
           retention-days: 7
