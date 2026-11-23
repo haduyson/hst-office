@@ -39,8 +39,8 @@ function Write-Failure([string]$Reason, [int]$ExitCode) {
         $json = @{schema=1; code=$Reason; exit=$ExitCode; from='@FROM_RELEASE@'; to='@TO_RELEASE@'} | ConvertTo-Json -Compress
         Set-Content -LiteralPath "$state.tmp" -Encoding ASCII -Value $json
         Move-Item -LiteralPath "$state.tmp" -Destination $state -Force
-        Write-Step ("Recorded failure: $Reason ($ExitCode)")
-    } catch { Write-Step 'Failure not recorded' }
+        Write-Step ("Recorded outcome: $Reason ($ExitCode)")
+    } catch { Write-Step 'Outcome not recorded' }
 }
 $code = 1
 $fail = 'wait'
@@ -62,6 +62,22 @@ try {
         $seconds++
     }
     Write-Step 'Process exited'
+    # Every other process run from this installation must be gone too (a copy in another user's session, a second
+    # copy, its Python): Windows Installer cannot replace the files they hold and defers them to the next restart of
+    # the computer, so the office reopened below would run a mix of old and new files until then.
+    $programDir = (Split-Path -Parent $Soffice).TrimEnd('\') + '\'
+    $others = @()
+    for ($left = 120; $left -gt 0; $left--) {
+        $others = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Id -ne $PID -and $_.Path -and $_.Path.StartsWith($programDir, [System.StringComparison]::OrdinalIgnoreCase) })
+        if ($others.Count -eq 0) { break }
+        if ($left -eq 120) { Write-Step ('Waiting for other office processes: ' + (($others | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
+        Start-Sleep -Seconds 1
+    }
+    if ($others.Count -gt 0) {
+        $fail = 'busy'
+        throw ('Office processes still running after 2 minutes; installation skipped: ' + (($others | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', '))
+    }
     Remove-Item -LiteralPath $state -ErrorAction SilentlyContinue
     $fail = 'verify'
     if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {
@@ -85,6 +101,12 @@ try {
                 $code = 0
                 Remove-Item -LiteralPath $Installer
                 Write-Step 'Deleted installer'
+                # 3010: installed, but Windows replaces some files only at the next restart of the computer. The office
+                # reopened below tells the user to restart (update_outcome, code reboot).
+                if ($result.ExitCode -eq 3010) {
+                    Write-Step 'Windows must restart the computer to finish the installation'
+                    Write-Failure 'reboot' 3010
+                }
             } else {
                 $code = $result.ExitCode
                 if ($code -eq 1602) { $fail = 'cancel' }  # the installer's own Cancel button

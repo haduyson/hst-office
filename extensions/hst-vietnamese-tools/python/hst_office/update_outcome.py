@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
 # Copyright (C) 2026 HASON TECH
-"""The result of a failed "Cập nhật ngay", shown once when the office starts again.
+"""The result of a failed "Cập nhật ngay" (or one that needs a restart of the computer), shown once at the next start.
 
 The external helper (update_helper_scripts*.py, update_helper_cmd.py) writes update-result.json beside update.log when
-an install fails, then relaunches the old build. A success, a stop at the save prompt or a declined password question
+an install fails, then relaunches the old build. On Windows it also writes one (code reboot) when msiexec finished with
+3010, so that the new build it reopens asks for a restart of the computer. A plain success, a stop at the save prompt or a declined password question
 writes nothing. The file stays on this machine: it is read here and deleted before anything is shown.
 """
 import json
@@ -16,7 +17,10 @@ from .update_fetch import release_info
 
 STATE_NAME = "update-result.json"
 MAX_SIZE = 1024
-CODES = ("auth", "install", "verify", "tool", "wait", "readonly", "busy")
+CODES = ("auth", "install", "verify", "tool", "wait", "readonly", "busy", "reboot")
+# Not a failure: Windows Installer finished (exit 3010) but replaces some files only when the computer restarts. The
+# record is written by the helper of the new version and read by the new version it reopens.
+REBOOT = "reboot"
 
 
 def take(cache, current_release):
@@ -34,6 +38,9 @@ def take(cache, current_release):
         return None
     if type(outcome.get("exit")) is not int or not isinstance(outcome.get("to"), str):
         return None
+    if outcome["code"] == REBOOT:
+        # Only the version that was installed has to be restarted into.
+        return outcome if outcome["to"] == current_release else None
     # Another version runs now (installed some other way): the old failure no longer matters.
     return outcome if outcome.get("from") == current_release else None
 
@@ -41,6 +48,8 @@ def take(cache, current_release):
 def message(text, outcome, log):
     """The whole message in the language of `text` (update_texts)."""
     name = "HST Office %s" % outcome["to"] if outcome["to"] else "HST Office"
+    if outcome["code"] == REBOOT:
+        return text["outcome_reboot"] % (name, log)
     template = text["outcome_" + outcome["code"]]
     first = template % (name, outcome["exit"]) if outcome["code"] == "install" else template % name
     return "%s\n%s" % (first, text["outcome_next"] % log)
@@ -52,8 +61,9 @@ def _show(ctx, outcome, log):
     text = texts(ctx)
     desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     frame = desktop.getCurrentFrame()
+    buttons = [(text["close"], "close")] if outcome["code"] == REBOOT else [(text["download"], "download"), (text["close"], "close")]
     answer = _ask(ctx, frame.getContainerWindow() if frame else None, text["install_title"], message(text, outcome, log),
-                  [(text["download"], "download"), (text["close"], "close")], text_height=52)
+                  buttons, text_height=52)
     if answer == "download":
         manual_download(ctx)
 
