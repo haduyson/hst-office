@@ -163,7 +163,7 @@ def plus(office, which, title):
     subprocess.run(["screencapture", "-x", path], check=False)
     x, y, first_x, info = locate_tab_row(path)
     log("plus", which, x, y, info)
-    office.call("watch", 20, wait=0.1)  # 100 ms NSWindow trace, written after 20 s
+    office.call("watch", 20, 1 if ADOPTER == "fixsel" else 0, wait=0.1)  # NSWindow trace, written after 20 s
     t = time.time()
     how = "click"
     if x is not None:
@@ -251,7 +251,7 @@ def main():
         switch_probe(office)
         os._exit(0)
     time.sleep(2)
-    if ADOPTER == "off":
+    if ADOPTER == "off":  # "fixsel": the trace also selects the new native tab (hypothesis check)
         log("adopter", office.call("disable_adopter"))
     office.state("start")
     front()

@@ -190,7 +190,7 @@ def disable_adopter(path):
     _post(path, work)
 
 
-def watch(path, seconds):
+def watch(path, seconds, fix=0):
     """Every 100 ms on the main thread: a compact NSWindow row set; only changes are kept (JSON list)."""
     import threading
     import time
@@ -206,7 +206,18 @@ def watch(path, seconds):
                 rows.append("%s:%s%s%s%s t%s%s %s" % (w["n"], "V" if w["visible"] else "h", "F" if w["fullscreen"] else "",
                                                      "S" if w["active_space"] else "o", "K" if w["key"] else "",
                                                      w["tabbed"], "p%s" % w["parent"] if w["parent"] else "", w.get("frame")))
-        return {"key": _num(_send(app, "keyWindow")), "rows": rows}
+        fixed = []
+        if int(fix):
+            # Hypothesis check: the new tab joined the native full screen tab group but the previous tab is
+            # still the group's selected window; select the key window (the new tab) like a fix in vcl would.
+            key = _send(app, "keyWindow")
+            group = _send(key, "tabGroup") if key else None
+            if group and _send(key, "tabbedWindows"):
+                sel = _send(group, "selectedWindow")
+                if sel and sel != key:
+                    _send(group, "setSelectedWindow:", None, (ctypes.c_void_p,), key)
+                    fixed.append([_num(sel), _num(key)])
+        return {"key": _num(_send(app, "keyWindow")), "rows": rows, "fixed": fixed}
 
     class _W(unohelper.Base, XCallback):
         def notify(self, data):
@@ -217,7 +228,7 @@ def watch(path, seconds):
             except Exception as error:  # noqa: BLE001
                 log.append({"t": round(time.time(), 2), "error": repr(error)})
             if time.time() < end:
-                threading.Timer(0.1, post).start()
+                threading.Timer(0.02 if int(fix) else 0.1, post).start()
             else:
                 with open(path, "w", encoding="utf-8") as f:
                     json.dump(log, f, ensure_ascii=False, indent=1)
