@@ -550,7 +550,7 @@ new file mode 100644
 index 0000000..7073692
 --- /dev/null
 +++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,132 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -626,7 +626,12 @@ index 0000000..7073692
 +    void PlaceChildren();
 +
 +    void ReloadFiles();
++    /** Fills the recent and pinned lists from the files; the focused file keeps the focus. */
 +    void FillLists();
++    /** As FillLists(), with the file that has the focus given (by its URL, empty for none). */
++    void FillLists(const OUString& rFocusURL);
++    /** The URL of the file whose row has the focus, empty when no file row has it. */
++    OUString FocusedFileURL() const;
 +    void TogglePinned(const OUString& rURL);
 +    void RemoveFromList(const OUString& rURL);
 +    void OpenFile(const OUString& rURL);
@@ -683,7 +688,7 @@ new file mode 100644
 index 0000000..f23b6c0
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,908 @@
+@@ -0,0 +1,909 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -982,7 +987,8 @@ index 0000000..f23b6c0
 +        util::URL aURL;
 +        aURL.Complete = rCommand;
 +        util::URLTransformer::create(m_xContext)->parseStrict(aURL);
-+        uno::Reference<frame::XDispatchProvider> xProvider(mxFrame->getController(), uno::UNO_QUERY_THROW);
++        uno::Reference<frame::XDispatchProvider> xProvider(mxFrame->getController(),
++                                                           uno::UNO_QUERY_THROW);
 +        uno::Reference<frame::XDispatch> xDispatch = xProvider->queryDispatch(aURL, OUString(), 0);
 +        CPPUNIT_ASSERT(xDispatch.is());
 +        xDispatch->dispatch(aURL, {});
@@ -1144,9 +1150,9 @@ index 0000000..f23b6c0
 +CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testReloadKeepsFocusedFile)
 +{
 +    // A file leaves the history (Remove from list in a row's menu) while another row has the
-+    // focus: the focus stays on the file it was on. The focused file used to be looked up with the
-+    // rows of the old list in the new list, so it landed on another file, or past the new list's end
-+    // when the last row had the focus, and the office crashed.
++    // focus: the focus stays on the file it was on. The focused file used to be looked up with
++    // the rows of the old list in the new list, so it landed on another file, or past the new
++    // list's end when the last row had the focus, and the office crashed.
 +    openStartCenter();
 +    canvas()->GrabFocus();
 +    Scheduler::ProcessEventsToIdle();
@@ -3943,7 +3949,7 @@ new file mode 100644
 index 0000000..d6af4b7
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterfiles.cxx
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,225 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4001,8 +4007,11 @@ index 0000000..d6af4b7
 +void HstStartCenterWindow::ReloadFiles()
 +{
 +    CanvasModel& rModel = mxCanvas->GetModel();
++    // the rows of the lists point into the files shown so far: find the focused file before the
++    // new files replace them (the history may have lost files, then old rows run past the new end)
++    const OUString aFocusURL = FocusedFileURL();
 +    rModel.aFiles = LoadRecentFiles();
-+    FillLists();
++    FillLists(aFocusURL);
 +
 +    // file times not read yet: on a worker thread, the table shows them when they arrive
 +    std::vector<OUString> aURLs;
@@ -4021,15 +4030,21 @@ index 0000000..d6af4b7
 +    });
 +}
 +
-+void HstStartCenterWindow::FillLists()
++OUString HstStartCenterWindow::FocusedFileURL() const
++{
++    const RecentFile* pFocus = mxCanvas ? mxCanvas->ItemFile(mxCanvas->GetFocusItem()) : nullptr;
++    return pFocus ? pFocus->aURL : OUString();
++}
++
++void HstStartCenterWindow::FillLists() { FillLists(FocusedFileURL()); }
++
++void HstStartCenterWindow::FillLists(const OUString& rFocusURL)
 +{
 +    if (!mxCanvas)
 +        return;
 +    CanvasModel& rModel = mxCanvas->GetModel();
 +    // the focused file stays focused when it is still listed
 +    const Hit aFocus = mxCanvas->GetFocusItem();
-+    const RecentFile* pFocus = mxCanvas->ItemFile(aFocus);
-+    const OUString aFocusURL = pFocus ? pFocus->aURL : OUString();
 +
 +    rModel.aQuery = mxSearch ? mxSearch->get_text() : OUString();
 +    const OUString aQuery = FoldForSearch(rModel.aQuery);
@@ -4045,9 +4060,9 @@ index 0000000..d6af4b7
 +    }
 +    mxCanvas->ModelChanged();
 +
-+    if (aFocusURL.isEmpty() || !mxCanvas->HasFocus())
++    if (rFocusURL.isEmpty() || !mxCanvas->HasFocus())
 +        return;
-+    const int nRow = rowOf(rModel, aFocus.ePart == Part::Pinned ? rModel.aPinned : rModel.aRecent, aFocusURL);
++    const int nRow = rowOf(rModel, aFocus.ePart == Part::Pinned ? rModel.aPinned : rModel.aRecent, rFocusURL);
 +    if (nRow >= 0)
 +        mxCanvas->FocusItem({ aFocus.ePart, nRow });
 +}
