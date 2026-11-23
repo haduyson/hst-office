@@ -22,6 +22,7 @@ jobs:
       matrix:
         source: [run, release]
         skia: [default, raster]
+        mode: [startcenter]
     runs-on: macos-15
     timeout-minutes: 60
     permissions:
@@ -56,12 +57,13 @@ jobs:
         env:
           SOURCE: ${{ matrix.source }}
           SKIA: ${{ matrix.skia }}
+          MODE: ${{ matrix.mode }}
         run: |
           set -eu
           dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
           out="$RUNNER_TEMP/sheetsgrid"
           mkdir -p "$out"
-          bash scripts/macos/sheets-grid-probe.sh "$dmg" "$out" "$SOURCE-$SKIA" "$SKIA" || echo "probe exit $?"
+          bash scripts/macos/sheets-grid-probe.sh "$dmg" "$out" "$SOURCE-$SKIA-$MODE" "$SKIA" "$MODE" || echo "probe exit $?"
           python -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install -q pillow
           "$RUNNER_TEMP/venv/bin/python" scripts/macos/sheets-grid-lines.py "$out" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -69,7 +71,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: macos-verify-sheets-grid-${{ matrix.source }}-${{ matrix.skia }}-${{ github.run_id }}
+          name: macos-verify-sheets-grid-${{ matrix.source }}-${{ matrix.skia }}-${{ matrix.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/sheetsgrid/
           if-no-files-found: error
           retention-days: 14

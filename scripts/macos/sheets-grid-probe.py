@@ -20,6 +20,8 @@ import uno
 from com.sun.star.beans import PropertyValue
 
 pid, out, label = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+# direct: a spreadsheet loaded straight from the factory URL; startcenter: the Start Center button path
+mode = sys.argv[4] if len(sys.argv) > 4 else "direct"
 ZOOMS = [100, 50, 200]
 
 
@@ -55,8 +57,32 @@ if ctx is None:
     sys.exit(0)
 
 desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, (pv("Hidden", False),))
-time.sleep(4)
+if mode == "startcenter":
+    # Same route as the Start Center "Bảng tính" tile: its dispatch of private:factory/scalc with target _default,
+    # sent through the current (Start Center) frame. Mouse clicks are not used.
+    time.sleep(8)
+    front()
+    time.sleep(2)
+    shot(f"{label}-startcenter.png")
+    url = uno.createUnoStruct("com.sun.star.util.URL")
+    url.Complete = "private:factory/scalc"
+    frame = desktop.getCurrentFrame()
+    dispatch = frame.queryDispatch(url, "_default", 0)
+    dispatch.dispatch(url, ())
+    doc = None
+    for _ in range(60):
+        cur = desktop.getCurrentComponent()
+        if cur is not None and cur.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+            doc = cur
+            break
+        time.sleep(1)
+    if doc is None:
+        print(json.dumps({"label": label, "error": "no spreadsheet after the Start Center dispatch"}), flush=True)
+        sys.exit(0)
+    time.sleep(4)
+else:
+    doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, (pv("Hidden", False),))
+    time.sleep(4)
 sheet = doc.Sheets.getByIndex(0)
 sheet.getCellByPosition(0, 0).setValue(12345)
 sheet.getCellByPosition(1, 1).setString("abc")

@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
 # Copyright (C) 2026 HASON TECH
 # Grid of a new HST Sheets document on macOS, at 100 %, 50 % and 200 % zoom, for one dmg and one Skia mode.
-#   sheets-grid-probe.sh <HSTOffice_*.dmg> <out-dir> <label> <default|raster>
+#   sheets-grid-probe.sh <HSTOffice_*.dmg> <out-dir> <label> <default|raster> [direct|startcenter]
+# startcenter: the app opens on its Start Center and the spreadsheet is made by the Start Center tile dispatch.
 # default: no SAL_SKIA variable; raster: SAL_SKIA=raster. Evidence only: fails only when the app cannot start.
 set -Eeuo pipefail
-[ $# -eq 4 ] || { echo "usage: $0 <dmg> <out-dir> <label> <default|raster>" >&2; exit 64; }
-dmg="$1"; out="$2"; label="$3"; skia="$4"
+[ $# -ge 4 ] && [ $# -le 5 ] || { echo "usage: $0 <dmg> <out-dir> <label> <default|raster> [direct|startcenter]" >&2; exit 64; }
+dmg="$1"; out="$2"; label="$3"; skia="$4"; mode="${5:-direct}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$out"; work="$(mktemp -d)"; mnt="$work/mnt"; mkdir -p "$mnt"
 hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
@@ -30,7 +31,7 @@ echo "skia=${SAL_SKIA:-default}" >"$out/mode-$label.txt"
 pid=$!
 sleep 10
 URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" PYTHONPATH="$app/Contents/Resources:$pyhome" \
-  perl -e 'alarm 420; exec @ARGV' "$py" "$here/sheets-grid-probe.py" "$pid" "$out" "$label" \
+  perl -e 'alarm 420; exec @ARGV' "$py" "$here/sheets-grid-probe.py" "$pid" "$out" "$label" "$mode" \
   >"$out/driver-$label.log" 2>&1 || echo "driver exit $?" >>"$out/driver-$label.log"
 kill "$pid" 2>/dev/null || true; sleep 3; kill -9 "$pid" 2>/dev/null || true
 cat "$out/driver-$label.log"
