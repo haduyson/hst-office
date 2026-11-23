@@ -1,0 +1,273 @@
+HST Office: document tabs on macOS in native full screen stay clickable after "+", and a tab takes over
+the window geometry in place (no 28 px jump on every new tab or tab switch).
+
+Owner report (macOS 14.6.1, 1.0.4-rc.1, also in 1.0.3): in native full screen, the tab strip "+"
+opened the new document, then nothing could be clicked (tab strip, ribbon, menu bar), not even
+another tab; the event loop was idle (sample). macOS runner probe (NSWindow trace every 100 ms):
+the new tab joined the native tab group of the full screen window, but the previous tab stayed the
+group's selected window; when the tab group parked it, AquaSalFrame::Hide took it out of the group
+(removeWindow + orderOut) and the new tab was left in a full screen Space that was no longer the
+active one: keys still reached it, clicks did not.
+
+- vcl/osx/salframe.cxx: joinNativeFullScreenTabs selects the new tab after addTabbedWindow. Hide asks
+  the native group which window is selected instead of isVisible (the trace showed the replaced tab
+  still visible while the new one was selected): a tab that is not selected is hidden by the
+  selection and stays in the group; a tab that is still selected selects the other shown tab of its
+  native group instead of leaving it; only without one it leaves and orders out as before.
+
+Windowed (all platforms): DocumentTabGroup::copyGeometry gave the incoming tab the geometry of the
+shown tab through SystemWindow::SetWindowState, whose #96568 check moves a frame placed exactly over
+another shown frame by the title bar height (28 px on macOS), back to the top once off screen. The
+shown tab is still there when its geometry is copied, so every new or switched-to tab moved
+(macOS runner sampler: 102,65 -> 130,93 -> 158,121); maximized windows were exempt.
+
+- vcl/source/window/syswin.cxx: hst_vcl_set_window_state_in_place (exported, declared in the
+  framework like hst_vcl_set_tab_group): SetWindowState without the #96568 displacement.
+- framework documenttabgroup.cxx: copyGeometry uses it. Detaching a tab into a window of its own
+  keeps the cascade.
+
+License: modified upstream files keep their license (MPL-2.0); the new test files are HST's
+(LicenseRef-HST-Proprietary).
+Test: CppunitTest_vcl_hst_window_state_in_place; macOS runner probe scripts/macos/fs-new-tab-probe.sh
+(branch probe/mac-new-tab-hang).
+---
+--- a/vcl/osx/salframe.cxx
++++ b/vcl/osx/salframe.cxx
+@@ -455,6 +455,13 @@
+         NSWindowTabGroup* pGroup = [pWindow tabGroup];
+         if( pGroup && [pGroup isTabBarVisible] )
+             [pWindow toggleTabBar: nil];
++        // The new tab is the shown one: select it now, so the previous tab is hidden by the
++        // selection and stays in the group. Left selected, the previous tab was still visible when
++        // the tab group parked it, Hide() took it out of the group, and the new tab stayed behind
++        // in a full screen Space that was no longer the active one: keys still reached it, but no
++        // click did (tab strip, ribbon, menu bar), so the application looked frozen.
++        if( pGroup )
++            [pGroup setSelectedWindow: mpNSWindow];
+         break;
+     }
+ }
+@@ -665,11 +672,33 @@
+         {
+             if( [mpNSWindow tabbedWindows] == nil )
+                 [mpNSWindow orderOut: NSApp];
+-            else if( [mpNSWindow isVisible] )
++            else if( [[mpNSWindow tabGroup] selectedWindow] == mpNSWindow )
+             {
+-                // still the selected tab (nothing replaced it): leave the group before hiding
+-                [[mpNSWindow tabGroup] removeWindow: mpNSWindow];
+-                [mpNSWindow orderOut: NSApp];
++                // Still the selected tab (isVisible is no guide: the tab that replaced it was
++                // already selected and both windows still answered visible, macOS runner trace).
++                // When another tab of this native group is shown in vcl (the tab that replaces
++                // this one), select it: this tab is then hidden by the selection and stays in the
++                // group. Taking a window out of a full screen group leaves the other tabs in a
++                // Space that is no longer the active one: keys still reach them, clicks do not.
++                // Only when no other shown tab is in the group: leave it and hide.
++                NSArray<NSWindow*>* pTabs = [mpNSWindow tabbedWindows];
++                NSWindow* pShown = nil;
++                for( AquaSalFrame* pTab : s_aTabGroupFrames )
++                {
++                    if( pTab != this && pTab->mbShown && pTab->mpNSWindow
++                        && [pTabs containsObject: pTab->mpNSWindow] )
++                    {
++                        pShown = pTab->mpNSWindow;
++                        break;
++                    }
++                }
++                if( pShown )
++                    [[mpNSWindow tabGroup] setSelectedWindow: pShown];
++                else
++                {
++                    [[mpNSWindow tabGroup] removeWindow: mpNSWindow];
++                    [mpNSWindow orderOut: NSApp];
++                }
+             }
+         }
+         else
+--- a/vcl/source/window/syswin.cxx
++++ b/vcl/source/window/syswin.cxx
+@@ -338,6 +338,21 @@
+ // HST Office: the document tab group (framework) tells the frame of a tab window that it is a
+ // group member (macOS and Windows: no window animation; macOS: tabs share the native full screen
+ // Space). Declared here and in the framework instead of a public header on purpose.
++// HST Office: SystemWindow::SetWindowState without the #96568 displacement. The document tab group
++// (framework) gives a tab window the geometry of the tab it replaces while that tab is still shown at
++// the same place; the displacement moved every new or switched-to tab by the title bar height (28 px on
++// macOS), and back to the top once it left the screen, so the window jumped on each tab switch.
++static bool s_bHstWindowStateInPlace = false;
++
++SAL_DLLPUBLIC_EXPORT void hst_vcl_set_window_state_in_place(vcl::Window* pWindow, std::u16string_view rState)
++{
++    if (!pWindow || pWindow->isDisposed() || !pWindow->IsSystemWindow())
++        return;
++    s_bHstWindowStateInPlace = true;
++    static_cast<SystemWindow*>(pWindow)->SetWindowState(rState);
++    s_bHstWindowStateInPlace = false;
++}
++
+ SAL_DLLPUBLIC_EXPORT void hst_vcl_set_tab_group_member(vcl::Window* pWindow, bool bMember)
+ {
+     if (!pWindow)
+@@ -710,7 +725,10 @@
+ 
+         // #96568# avoid having multiple frames at the same screen location
+         //  do the check only if not maximized
+-        if( !((rData.mask() & vcl::WindowDataMask::State) && (nState & vcl::WindowState::Maximized)) )
++        // HST Office: not for a document tab that takes over the geometry of the tab it replaces
++        // (hst_vcl_set_window_state_in_place): that tab is still on screen at the same place.
++        if( !s_bHstWindowStateInPlace
++            && !((rData.mask() & vcl::WindowDataMask::State) && (nState & vcl::WindowState::Maximized)) )
+             if (rData.mask() & vcl::WindowDataMask::PosSize)
+             {
+                 AbsoluteScreenPixelRectangle aDesktop = GetDesktopRectPixel();
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -76,6 +76,9 @@
+ // nGroup (0 = none); macOS and Windows switch tabs without animation, macOS joins native full
+ // screen tabs of the same window only.
+ void hst_vcl_set_tab_group(vcl::Window* pWindow, sal_uInt32 nGroup);
++// Implemented in vcl (syswin.cxx): SystemWindow::SetWindowState without moving the window off another
++// frame at the same place (a tab takes over the geometry of the tab it replaces).
++void hst_vcl_set_window_state_in_place(vcl::Window* pWindow, std::u16string_view rState);
+ 
+ using namespace css;
+ 
+@@ -892,8 +895,10 @@
+     const vcl::WindowDataMask nMask
+         = pSource->IsMinimized() ? vcl::WindowDataMask::PosSize : vcl::WindowDataMask::All;
+     const OUString aState = pSource->GetWindowState(nMask);
++    // In place: vcl would move a window placed exactly over another shown frame (#96568), and the
++    // tab it replaces is still shown there; every new or switched-to tab moved by a title bar.
+     if (!aState.isEmpty())
+-        static_cast<SystemWindow*>(pTo)->SetWindowState(aState);
++        hst_vcl_set_window_state_in_place(pTo, aState);
+ }
+ 
+ bool DocumentTabGroup::park(Member& rMember)
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -243,6 +243,7 @@
+     CppunitTest_vcl_hst_ribbon_coat \
+     CppunitTest_vcl_hst_ribbon_tabs_fit \
+     CppunitTest_vcl_hst_statusbar_coat \
++    CppunitTest_vcl_hst_window_state_in_place \
+     CppunitTest_vcl_text \
+     CppunitTest_vcl_textlayout \
+     CppunitTest_vcl_treeview \
+--- /dev/null
++++ b/vcl/CppunitTest_vcl_hst_window_state_in_place.mk
+@@ -0,0 +1,42 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# This file is part of HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_window_state_in_place))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_window_state_in_place, \
++    vcl/qa/cppunit/hst/window-state-in-place-test \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,vcl_hst_window_state_in_place,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_window_state_in_place, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    test \
++    tl \
++    unotest \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,vcl_hst_window_state_in_place))
++
++$(eval $(call gb_CppunitTest_use_ure,vcl_hst_window_state_in_place))
++$(eval $(call gb_CppunitTest_use_vcl,vcl_hst_window_state_in_place))
++
++$(eval $(call gb_CppunitTest_use_components,vcl_hst_window_state_in_place,\
++    configmgr/source/configmgr \
++    i18npool/util/i18npool \
++    ucb/source/core/ucb1 \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,vcl_hst_window_state_in_place))
++
++# vim: set noet sw=4 ts=4:
+--- /dev/null
++++ b/vcl/qa/cppunit/hst/window-state-in-place-test.cxx
+@@ -0,0 +1,68 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <test/bootstrapfixture.hxx>
++
++#include <vcl/scheduler.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/windowstate.hxx>
++#include <vcl/wrkwin.hxx>
++
++#include <string_view>
++
++// vcl (syswin.cxx): SystemWindow::SetWindowState without the #96568 displacement
++void hst_vcl_set_window_state_in_place(vcl::Window* pWindow, std::u16string_view rState);
++
++namespace
++{
++constexpr std::u16string_view STATE = u"120,140,400,300;1;";
++
++/// Top left corner of a frame window from its window state.
++Point topLeft(WorkWindow& rWindow)
++{
++    const vcl::WindowData aData(rWindow.GetWindowState(vcl::WindowDataMask::Pos));
++    return Point(aData.x(), aData.y());
++}
++
++class WindowStateInPlaceTest : public test::BootstrapFixture
++{
++public:
++    WindowStateInPlaceTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++};
++
++// A document tab takes over the geometry of the tab it replaces while that tab is still shown at the same
++// place: the in-place variant keeps the position, where SetWindowState moves the window off the shown frame.
++CPPUNIT_TEST_FIXTURE(WindowStateInPlaceTest, testTabTakesOverGeometryInPlace)
++{
++    SolarMutexGuard aGuard;
++    ScopedVclPtrInstance<WorkWindow> pShown(nullptr, WB_STDWORK);
++    pShown->SetWindowState(STATE);
++    pShown->Show();
++    Scheduler::ProcessEventsToIdle();
++    const Point aShownPos = topLeft(*pShown);
++
++    // upstream behaviour (#96568): a new frame over a shown one is displaced
++    ScopedVclPtrInstance<WorkWindow> pPlain(nullptr, WB_STDWORK);
++    pPlain->SetWindowState(pShown->GetWindowState(vcl::WindowDataMask::All));
++    CPPUNIT_ASSERT(topLeft(*pPlain) != aShownPos);
++
++    // the document tab: exactly where the shown tab is
++    ScopedVclPtrInstance<WorkWindow> pTab(nullptr, WB_STDWORK);
++    hst_vcl_set_window_state_in_place(pTab.get(), pShown->GetWindowState(vcl::WindowDataMask::All));
++    CPPUNIT_ASSERT_EQUAL(aShownPos, topLeft(*pTab));
++
++    // and the displacement is back for everything else afterwards
++    ScopedVclPtrInstance<WorkWindow> pLater(nullptr, WB_STDWORK);
++    pLater->SetWindowState(pShown->GetWindowState(vcl::WindowDataMask::All));
++    CPPUNIT_ASSERT(topLeft(*pLater) != aShownPos);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
