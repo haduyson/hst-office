@@ -26,7 +26,9 @@ cat >"$profile/user/registrymodifications.xcu" <<'XCU'
 XCU
 if [ "$skia" = raster ]; then export SAL_SKIA=raster; else unset SAL_SKIA; fi
 echo "skia=${SAL_SKIA:-default}" >"$out/mode-$label.txt"
-"$app/Contents/MacOS/soffice" --norestore --nologo --nodefault --accept="pipe,name=hstsheetgrid;urp;" \
+# --nodefault suppresses the Start Center; the startcenter mode needs it shown
+nodefault=(--nodefault); [ "$mode" = startcenter ] && nodefault=()
+"$app/Contents/MacOS/soffice" --norestore --nologo "${nodefault[@]}" --accept="pipe,name=hstsheetgrid;urp;" \
   "-env:UserInstallation=file://$profile" >"$out/soffice-$label.log" 2>&1 &
 pid=$!
 sleep 10
