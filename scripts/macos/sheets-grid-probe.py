@@ -66,8 +66,22 @@ if mode == "startcenter":
     shot(f"{label}-startcenter.png")
     url = uno.createUnoStruct("com.sun.star.util.URL")
     url.Complete = "private:factory/scalc"
-    frame = desktop.getCurrentFrame()
-    dispatch = frame.queryDispatch(url, "_default", 0)
+    # Start Center frame: the current frame, else the first frame of the desktop, else the desktop itself.
+    candidates = [("current-frame", desktop.getCurrentFrame())]
+    candidates += [("frame-%d" % i, f) for i, f in enumerate(desktop.getFrames() or [])]
+    candidates += [("desktop", desktop)]
+    dispatch, used = None, None
+    for name, provider in candidates:
+        if provider is None:
+            continue
+        dispatch = provider.queryDispatch(url, "_default", 0)
+        if dispatch is not None:
+            used = name
+            break
+    if dispatch is None:
+        print(json.dumps({"label": label, "error": "no dispatch for private:factory/scalc"}), flush=True)
+        sys.exit(0)
+    print(json.dumps({"label": label, "dispatch_frame": used}), flush=True)
     dispatch.dispatch(url, ())
     doc = None
     for _ in range(60):
