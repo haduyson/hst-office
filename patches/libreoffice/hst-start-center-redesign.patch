@@ -683,7 +683,7 @@ new file mode 100644
 index 0000000..f23b6c0
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,840 @@
+@@ -0,0 +1,857 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1142,6 +1142,23 @@ index 0000000..f23b6c0
 +            CPPUNIT_ASSERT_MESSAGE(aServices[i].toUtf8().getStr(), xModel.is());
 +            CPPUNIT_ASSERT_MESSAGE(aServices[i].toUtf8().getStr(), xModel->supportsService(aServices[i]));
 +        }
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testDocumentFromTilePaintsUnbuffered)
++{
++    // The canvas paints through its frame's buffer. A document made from a tile replaces the Start
++    // Center in the same frame and must not keep that buffer: Sheets' grid paints straight onto its
++    // window, so the buffer, which holds only the background, was copied over the cells and the
++    // grid lines, and the sheet stayed blank.
++    for (sal_Int64 i = 0; i < 3; ++i)
++    {
++        openStartCenter();
++        CPPUNIT_ASSERT(canvas()->SupportsDoubleBuffering());
++        press(u"Quickly Create a New Document", i);
++        VclPtr<vcl::Window> pDocument = VCLUnoHelper::GetWindow(mxFrame->getComponentWindow());
++        CPPUNIT_ASSERT(pDocument);
++        CPPUNIT_ASSERT_MESSAGE(OString::number(i).getStr(), !pDocument->SupportsDoubleBuffering());
 +    }
 +}
 +
@@ -2310,7 +2327,7 @@ new file mode 100644
 index 0000000..c46e207
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.cxx
-@@ -0,0 +1,913 @@
+@@ -0,0 +1,924 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2398,6 +2415,17 @@ index 0000000..c46e207
 +    }
 +    maIcons.clear();
 +    mxSearchWindow.reset();
++    // The double buffering asked for in the constructor belongs to the whole frame, not to the canvas,
++    // and the frame stays when a document replaces the Start Center in it. Left on, it is copied over
++    // what a window paints straight onto itself instead of into its render context: Sheets' grid, with
++    // its cells, grid lines and cell cursor, stayed blank. Give it back and repaint the frame, in case
++    // the document painted before the Start Center went away.
++    if (SupportsDoubleBuffering())
++    {
++        RequestDoubleBuffering(false);
++        if (vcl::Window* pFrame = GetFrameWindow(); pFrame && !pFrame->isDisposed())
++            pFrame->Invalidate(InvalidateFlags::Children);
++    }
 +    Control::dispose();
 +}
 +
