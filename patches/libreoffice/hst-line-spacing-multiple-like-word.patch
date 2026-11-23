@@ -1,0 +1,316 @@
+HST Office: "Multiple" line spacing in lines, as in Word.
+
+The Paragraph dialog (Indents and Spacing) and the custom value of the Line Spacing popup (ribbon,
+sidebar) showed proportional spacing as a whole percentage, minimum 6 %. A Word user who typed "1.3"
+got 13 % (the dot is the thousands separator in a Vietnamese locale) and "1,3" got 6 %, without a
+message, and the lines overlapped.
+
+- The "Multiple" field shows and reads a number of lines with two decimals ("1,30"), range 0.06 to
+  132 lines, steps of 0.5 lines. "1,3" and "1.3" are 130 % in any locale; a value typed with "%"
+  ("130%") is a percentage. svx/source/dialog/hstlinespacing.cxx (SPDX LicenseRef-HST-Proprietary)
+  parses and formats; the field's value is the percentage, so the attribute (SvxLineSpacingItem,
+  DOCX w:line/240, ODF fo:line-height) is unchanged: DOCX w:line="312" opens as 1,30 and saves as 312.
+- The popup gets the quick values 2.5 and 3 next to 1, 1.15, 1.5 and 2, and "Line Spacing Options..."
+  which opens the Paragraph dialog on Indents and Spacing (every paragraph dialog names that page
+  "indents"; the page the dialog restores is set before the dispatch).
+- Writer, Calc (text in shapes), Impress and Draw share the page and the popup, so all of them get it.
+
+License: the upstream files remain under their original license (MPL-2.0); the hst* files are HST's.
+Test: CppunitTest_svx_hst_line_spacing; tests/runtime/dialogs_writer_paragraph_font_cases.py
+---
+--- /dev/null
++++ b/include/svx/hstlinespacing.hxx
+@@ -0,0 +1,55 @@
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++/* Copyright (c) HASON TECH. HST Office. */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++#include <svx/svxdllapi.h>
++
++#include <optional>
++#include <string_view>
++
++namespace weld
++{
++class SpinButton;
++}
++
++/** "Multiple" (proportional) line spacing shown and typed in lines, as in Word.
++
++    The paragraph attribute keeps the spacing in percent (SvxLineSpacingItem::GetPropLineSpace,
++    DOCX w:line/240); the fields of the Paragraph dialog and of the Line Spacing popup show it as a
++    number of lines with two decimals ("1,30" for 130 %) and read what the user types:
++
++    - a plain number is a number of lines: "1,3", "1.3" and "1,30" are 130 %;
++    - a number followed by "%" is a percentage: "130%" and "130 %" are 130 %;
++    - either "," or "." is the decimal separator, whatever the locale (a Word user types "1.3"
++      in a Vietnamese UI); the locale's own separator is accepted too.
++
++    The range is Word's: 0.06 to 132 lines (6 % to 13200 %).
++ */
++namespace svx::hstlinespacing
++{
++/// Smallest "Multiple" line spacing in percent (0.06 lines).
++constexpr sal_Int64 MIN_PERCENT = 6;
++/// Largest "Multiple" line spacing in percent (132 lines).
++constexpr sal_Int64 MAX_PERCENT = 13200;
++
++/** Percent value of the text typed in a "Multiple" field, not yet limited to the range.
++    Rounds half up to a whole percent (to 0.01 lines). Empty when the text is not a number. */
++SVX_DLLPUBLIC std::optional<sal_Int64> ParseMultiple(std::u16string_view rText,
++                                                     std::u16string_view rDecimalSep = u",");
++
++/// nPercent limited to MIN_PERCENT..MAX_PERCENT.
++SVX_DLLPUBLIC sal_Int64 ClampMultiple(sal_Int64 nPercent);
++
++/// The lines shown for nPercent, with two decimals: 130 -> "1,30" for the separator ",".
++SVX_DLLPUBLIC OUString FormatMultiple(sal_Int64 nPercent, std::u16string_view rDecimalSep);
++
++/** Make rField the "Multiple" field: its value is the percentage (two digits, so the value 130
++    is shown as 1.30 lines), formatted and parsed as above with the decimal separator of the
++    locale settings, range 0.06 to 132 lines, steps of 0.5 lines like Word. */
++SVX_DLLPUBLIC void SetupMultipleField(weld::SpinButton& rField);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/CppunitTest_svx_hst_line_spacing.mk
+@@ -0,0 +1,19 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (c) HASON TECH. HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,svx_hst_line_spacing))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,svx_hst_line_spacing, \
++    svx/qa/unit/hstlinespacing \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,svx_hst_line_spacing))
++
++$(eval $(call gb_CppunitTest_use_libraries,svx_hst_line_spacing, \
++    sal \
++    svx \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/svx/Library_svx.mk
++++ b/svx/Library_svx.mk
+@@ -127,6 +127,7 @@ $(eval $(call gb_Library_add_exception_objects,svx,\
+     svx/source/dialog/charmap \
+     svx/source/dialog/cuicharmap \
+     svx/source/dialog/hstsymbolsearch \
++    svx/source/dialog/hstlinespacing \
+     svx/source/dialog/searchcharmap \
+     svx/source/dialog/connctrl \
+     svx/source/dialog/_contdlg \
+--- a/svx/Module_svx.mk
++++ b/svx/Module_svx.mk
+@@ -43,6 +43,7 @@ $(eval $(call gb_Module_add_check_targets,svx,\
+ 	CppunitTest_svx_removewhichrange \
+ 	CppunitTest_svx_core \
+ 	CppunitTest_svx_hst_symbol_search \
++	CppunitTest_svx_hst_line_spacing \
+ ))
+ 
+ # screenshots
+--- /dev/null
++++ b/svx/qa/unit/hstlinespacing.cxx
+@@ -0,0 +1,111 @@
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++/* Copyright (c) HASON TECH. HST Office. */
++
++#include <sal/config.h>
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/TestFixture.h>
++#include <cppunit/extensions/HelperMacros.h>
++#include <cppunit/plugin/TestPlugIn.h>
++
++#include <svx/hstlinespacing.hxx>
++
++using namespace svx::hstlinespacing;
++
++namespace
++{
++// ParseMultiple, empty optional as -1 for readable asserts
++sal_Int64 parse(std::u16string_view rText, std::u16string_view rSep = u",")
++{
++    return ParseMultiple(rText, rSep).value_or(-1);
++}
++
++class HstLineSpacingTest : public CppUnit::TestFixture
++{
++public:
++    // "1,3" and "1.3" (Word style, any locale) and "130%" are all 130 %
++    void testWordStyleInput()
++    {
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u"1,3"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u"1.3"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u"130%"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u"130 %"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u"1,30"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u" 1,3 "));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u"1.3", u"."));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(115), parse(u"1,15"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(100), parse(u"1"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(250), parse(u"2,5"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(50), parse(u",5"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(100), parse(u"1."));
++        // a plain number is lines, as in Word: "130" is 130 lines (beyond the range)
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(13000), parse(u"130"));
++        // the locale's own separator when it is neither "," nor "."
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u"1٫3", u"٫"));
++    }
++
++    // whole percent: half up on the third decimal of lines or the first decimal of a percentage
++    void testRounding()
++    {
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(113), parse(u"1,125"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(112), parse(u"1,1249"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(133), parse(u"1,3333"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(131), parse(u"130,5%"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), parse(u"130,4%"));
++    }
++
++    void testInvalidInput()
++    {
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(-1), parse(u""));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(-1), parse(u"%"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(-1), parse(u","));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(-1), parse(u"1,2,3"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(-1), parse(u"1.000,5"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(-1), parse(u"-1"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(-1), parse(u"abc"));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(-1), parse(u"1,3 dòng"));
++    }
++
++    // Word's range, 0.06 to 132 lines
++    void testRange()
++    {
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(6), MIN_PERCENT);
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(13200), MAX_PERCENT);
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(6), ClampMultiple(*ParseMultiple(u"0,01")));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(6), ClampMultiple(*ParseMultiple(u"0,06")));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(13200), ClampMultiple(*ParseMultiple(u"132")));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(13200), ClampMultiple(*ParseMultiple(u"133")));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(13200), ClampMultiple(*ParseMultiple(u"99999999999999")));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(6), ClampMultiple(*ParseMultiple(u"1%")));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(130), ClampMultiple(130));
++    }
++
++    // the value is shown as lines with two decimals in the locale's separator
++    void testFormat()
++    {
++        CPPUNIT_ASSERT_EQUAL(u"1,30"_ustr, FormatMultiple(130, u","));
++        CPPUNIT_ASSERT_EQUAL(u"1.30"_ustr, FormatMultiple(130, u"."));
++        CPPUNIT_ASSERT_EQUAL(u"1,15"_ustr, FormatMultiple(115, u","));
++        CPPUNIT_ASSERT_EQUAL(u"1,00"_ustr, FormatMultiple(100, u","));
++        CPPUNIT_ASSERT_EQUAL(u"0,06"_ustr, FormatMultiple(6, u","));
++        CPPUNIT_ASSERT_EQUAL(u"132,00"_ustr, FormatMultiple(13200, u","));
++        // what is shown reads back as the same value
++        for (sal_Int64 n : { 6, 100, 115, 125, 130, 250, 300, 13200 })
++            CPPUNIT_ASSERT_EQUAL(n, parse(FormatMultiple(n, u",")));
++    }
++
++    CPPUNIT_TEST_SUITE(HstLineSpacingTest);
++    CPPUNIT_TEST(testWordStyleInput);
++    CPPUNIT_TEST(testRounding);
++    CPPUNIT_TEST(testInvalidInput);
++    CPPUNIT_TEST(testRange);
++    CPPUNIT_TEST(testFormat);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstLineSpacingTest);
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/dialog/hstlinespacing.cxx
+@@ -0,0 +1,79 @@
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++/* Copyright (c) HASON TECH. HST Office. */
++
++#include <sal/config.h>
++
++#include <svx/hstlinespacing.hxx>
++
++#include <rtl/ustrbuf.hxx>
++#include <tools/link.hxx>
++#include <unotools/localedatawrapper.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/weld/SpinButton.hxx>
++
++#include <algorithm>
++
++namespace svx::hstlinespacing
++{
++namespace
++{
++// More integer digits than this cannot be a line spacing; keep the arithmetic far from overflow.
++constexpr size_t MAX_INTEGER_DIGITS = 9;
++
++bool IsSpace(sal_Unicode c)
++{
++    // the no-break spaces some locales put between a number and "%"
++    return c == ' ' || c == '\t' || c == 0x00A0 || c == 0x202F;
++}
++
++std::u16string_view Trim(std::u16string_view aText)
++{
++    while (!aText.empty() && IsSpace(aText.front()))
++        aText.remove_prefix(1);
++    while (!aText.empty() && IsSpace(aText.back()))
++        aText.remove_suffix(1);
++    return aText;
++}
++
++bool IsDecimalSep(sal_Unicode c, std::u16string_view rDecimalSep)
++{
++    return c == ',' || c == '.' || (rDecimalSep.size() == 1 && c == rDecimalSep.front());
++}
++
++const OUString& LocaleDecimalSep()
++{
++    return Application::GetSettings().GetLocaleDataWrapper().getNumDecimalSep();
++}
++
++OUString FormatHdl(void*, sal_Int64 nValue) { return FormatMultiple(nValue, LocaleDecimalSep()); }
++
++std::optional<int> ParseHdl(void*, const OUString& rText)
++{
++    std::optional<sal_Int64> oPercent = ParseMultiple(rText, LocaleDecimalSep());
++    if (!oPercent)
++        return {};
++    return static_cast<int>(ClampMultiple(*oPercent));
++}
++}
++
++std::optional<sal_Int64> ParseMultiple(std::u16string_view, std::u16string_view) { return {}; }
++
++sal_Int64 ClampMultiple(sal_Int64 nPercent) { return nPercent; }
++
++OUString FormatMultiple(sal_Int64, std::u16string_view) { return OUString(); }
++
++void SetupMultipleField(weld::SpinButton& rField)
++{
++    // digits first: the range and the steps below are values in hundredths of a line
++    rField.set_digits(2);
++    rField.set_range(MIN_PERCENT, MAX_PERCENT);
++    rField.set_increments(50, 100);
++    rField.set_value_formatter(LINK_NONMEMBER(nullptr, FormatHdl));
++    rField.set_text_parser(LINK_NONMEMBER(nullptr, ParseHdl));
++    rField.set_width_chars(6);
++    rField.set_text(FormatMultiple(rField.get_value(), LocaleDecimalSep()));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
