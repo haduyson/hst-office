@@ -147,6 +147,20 @@ def locate_tab_row(path):
     return px, py, min(xs[best_y]), info
 
 
+def tab_targets(info):
+    """Label points of the tabs: the row's glyph list holds each tab's coloured dot and its close "x"; a tab is a
+    dot followed 60-130 px later by its "x"; its label starts about 30 px right of the dot."""
+    g = sorted(set(info.get("x_glyphs", [])))
+    out, i = [], 0
+    while i + 1 < len(g):
+        if 60 <= g[i + 1] - g[i] <= 130:
+            out.append(g[i] + 30)
+            i += 2
+        else:
+            i += 1
+    return out
+
+
 def frames_count(state):
     try:
         return len(state["frames"])
@@ -227,12 +241,11 @@ def switch_probe(office):
     path = f"{OUT}/{LABEL}-switch-locate.png"
     subprocess.run(["screencapture", "-x", path], check=False)
     _x, row_y, _f, info = locate_tab_row(path)
-    closes = [x for x in info.get("x_glyphs", []) if x > 60]
-    log("tab closes", closes, "row", info.get("x_row"))
+    targets = tab_targets(info)
+    log("tab targets", targets, "row", info.get("x_row"), info.get("x_glyphs"))
     with open(f"{OUT}/{LABEL}-switch-marks.txt", "w", encoding="utf-8") as marks:
         for rnd in range(2):
-            for i, cx in enumerate(closes):
-                tx = cx - 45
+            for i, tx in enumerate(targets):
                 marks.write(f"{int(time.time() * 1000)} click tab {i + 1} at {tx},{info.get('x_row')}\n")
                 marks.flush()
                 subprocess.run(["cliclick", f"c:{tx},{info.get('x_row')}"], check=False, timeout=20)
@@ -286,9 +299,8 @@ def main():
         path = f"{OUT}/{LABEL}-left-locate.png"
         subprocess.run(["screencapture", "-x", path], check=False)
         _x, _y, _f, info = locate_tab_row(path)
-        closes = [x for x in info.get("x_glyphs", []) if x > 60]
-        for i, cx in enumerate(closes[:4]):
-            subprocess.run(["cliclick", f"c:{cx - 45},{info.get('x_row')}"], check=False, timeout=20)
+        for i, tx in enumerate(tab_targets(info)[:4]):
+            subprocess.run(["cliclick", f"c:{tx},{info.get('x_row')}"], check=False, timeout=20)
             time.sleep(1.5)
             st = office.state(f"left-click-tab{i + 1}")
             act = [f["title"] for f in (st or {}).get("frames", []) if f.get("active")]
