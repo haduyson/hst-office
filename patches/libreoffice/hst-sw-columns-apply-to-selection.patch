@@ -330,7 +330,7 @@ License: the upstream files remain under their original license (MPL-2.0).
  
  using namespace ::com::sun::star;
  
-@@ -226,6 +232,187 @@ static void ResizeFrameCols(SwFormatCol& rCol,
+@@ -226,6 +232,188 @@ static void ResizeFrameCols(SwFormatCol& rCol,
  }
  
  // Here all changes to the tab bar will be shot again into the model.
@@ -446,6 +446,7 @@ License: the upstream files remain under their original license (MPL-2.0).
 +        const SfxPoolItem* pItem = aIter.GetCurItem();
 +        switch (pItem->Which())
 +        {
++            case RES_CNTNT: // the link to the section's own nodes
 +            case RES_COL:
 +            case RES_COLUMNBALANCE:
 +            case RES_FRM_SIZE:
@@ -518,7 +519,7 @@ License: the upstream files remain under their original license (MPL-2.0).
  void SwView::ExecTabWin( SfxRequest const & rReq )
  {
      SwWrtShell &rSh         = GetWrtShell();
-@@ -560,57 +747,35 @@ void SwView::ExecTabWin( SfxRequest const & rReq )
+@@ -560,57 +748,35 @@ void SwView::ExecTabWin( SfxRequest const & rReq )
          if ( pReqArgs )
          {
              const SfxInt16Item aColumnItem( static_cast<const SfxInt16Item&>(pReqArgs->Get(nSlot)) );
@@ -591,7 +592,7 @@ License: the upstream files remain under their original license (MPL-2.0).
              rSh.ChgPageDesc( rSh.GetCurPageDesc(), aDesc );
          }
          break;
-@@ -1442,8 +1607,10 @@ void SwView::StateTabWin(SfxItemSet& rSet)
+@@ -1442,8 +1608,10 @@ void SwView::StateTabWin(SfxItemSet& rSet)
          {
              sal_uInt16 nColumnType = 0;
  
