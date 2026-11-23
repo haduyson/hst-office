@@ -203,9 +203,11 @@ def watch(path, seconds, fix=0):
         rows = []
         for w in nswindows_rows()["windows"]:
             if w["title"] and "ImplGetDef" not in w["title"] or w["visible"]:
-                rows.append("%s:%s%s%s%s t%s%s %s" % (w["n"], "V" if w["visible"] else "h", "F" if w["fullscreen"] else "",
-                                                     "S" if w["active_space"] else "o", "K" if w["key"] else "",
-                                                     w["tabbed"], "p%s" % w["parent"] if w["parent"] else "", w.get("frame")))
+                rows.append("%s:%s%s%s%s t%s%s%s %s" % (w["n"], "V" if w["visible"] else "h", "F" if w["fullscreen"] else "",
+                                                       "S" if w["active_space"] else "o", "K" if w["key"] else "",
+                                                       w["tabbed"], " sel%s" % w["tab_selected"] if w["tabbed"] else "",
+                                                       " BAR" if w.get("tabbar") else "",
+                                                       w.get("frame")))
         fixed = []
         if int(fix):
             # Hypothesis check: the new tab joined the native full screen tab group but the previous tab is
