@@ -290,6 +290,31 @@ def main():
     plus(office, "plus-1", "")
     plus(office, "plus-2", "")
     if LAYOUT == "fullscreen":
+        # Command-W in full screen on an unmodified new tab (no save question), then click the first tab
+        log("clean tab", office.call("new_tab", ""))
+        time.sleep(4)
+        before = office.state("before-cmdw")
+        front()
+        osa('tell application "System Events" to keystroke "w" using command down')
+        time.sleep(4)
+        after = office.state("after-cmdw")
+        shot("after-cmdw")
+        ns = (after or {}).get("ns", {})
+        vis = [(w["n"], w["title"][:14], "F" if w["fullscreen"] else "", "S" if w["active_space"] else "o",
+                "K" if w["key"] else "", w["tabbed"]) for w in ns.get("windows", [])
+               if w.get("visible") and w.get("title") and "ImplGetDef" not in w["title"]]
+        print(f"RESULT {LABEL} cmd-w in full screen: frames {frames_count(before)}->{frames_count(after)} "
+              f"active {[f['title'] for f in (after or {}).get('frames', []) if f.get('active')]} visible {vis}", flush=True)
+        path = f"{OUT}/{LABEL}-cmdw-locate.png"
+        subprocess.run(["screencapture", "-x", path], check=False)
+        _x, _y, _f, info = locate_tab_row(path)
+        labels = tab_targets(info)
+        if labels and info.get("x_row"):
+            subprocess.run(["cliclick", f"c:{labels[0]},{info['x_row']}"], check=False, timeout=20)
+            time.sleep(2)
+            st = office.state("after-cmdw-tab-click")
+            print(f"RESULT {LABEL} cmd-w then click tab 1: active "
+                  f"{[f['title'] for f in (st or {}).get('frames', []) if f.get('active')]}", flush=True)
         # leave native full screen with several tabs, then switch tabs by real clicks
         front()
         rc, out = osa(f'tell application "System Events" to tell {PROC} to set value of attribute "AXFullScreen" '
