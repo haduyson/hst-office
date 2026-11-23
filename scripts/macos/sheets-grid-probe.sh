@@ -28,6 +28,11 @@ if [ "$skia" = raster ]; then export SAL_SKIA=raster; else unset SAL_SKIA; fi
 echo "skia=${SAL_SKIA:-default}" >"$out/mode-$label.txt"
 # --nodefault suppresses the Start Center; the startcenter mode needs it shown
 nodefault=(--nodefault); [ "$mode" = startcenter ] && nodefault=()
+# A fresh profile is initialised headless first (as the Start Center probe does), then the GUI starts on it.
+if [ "$mode" = startcenter ]; then
+  "$app/Contents/MacOS/soffice" --headless --norestore --nologo --terminate_after_init "-env:UserInstallation=file://$profile" \
+    >"$out/seed-$label.txt" 2>&1 || true
+fi
 "$app/Contents/MacOS/soffice" --norestore --nologo "${nodefault[@]}" --accept="socket,host=localhost,port=2002;urp;" \
   "-env:UserInstallation=file://$profile" >"$out/soffice-$label.txt" 2>&1 &
 pid=$!
