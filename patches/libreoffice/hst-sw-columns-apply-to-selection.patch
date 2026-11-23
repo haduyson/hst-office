@@ -1,0 +1,627 @@
+HST Office: Writer's Columns button puts the selection in columns, like Word
+
+The Columns popup of the ribbon and of the sidebar (One, Two, Three, Left, Right;
+SID_ATTR_PAGE_COLUMN) always changed the columns of the current page style, so putting one
+paragraph in two columns put the whole document in two columns. It now works like Word:
+
+- with a selection, a new section with the columns goes around the selection (as Format Columns
+  with "Apply to: Selection" does); DOCX saves it as continuous section breaks;
+- with the cursor in a section with columns, that section changes. "One" removes a section that
+  does nothing but lay out columns (plain, unprotected, visible, unconditional, only column
+  attributes) and keeps its text; any other section stays with one column;
+- otherwise the page style changes, as before.
+Left and Right keep the 2:1 column widths the page style used. New columns get Word's spacing of
+1.27 cm (720 twips) instead of none; columns that already have a spacing keep it. Each click is
+one undo step. The popup and the sidebar show the columns of the section around the cursor.
+"More Options" in the popup opens Format Columns (with "Apply to") instead of the page style
+dialog, which stays the fallback where Format Columns is disabled.
+
+Test: CppunitTest_sw_uibase_uiview, testPageColumnType*.
+
+License: the upstream files remain under their original license (MPL-2.0).
+
+--- a/sw/qa/uibase/uiview/uiview.cxx
++++ b/sw/qa/uibase/uiview/uiview.cxx
+@@ -38,6 +38,18 @@
+ #include <swmodule.hxx>
+ #include <view.hxx>
+ #include <IDocumentRedlineAccess.hxx>
++#include <UndoManager.hxx>
++#include <doc.hxx>
++#include <fmtclds.hxx>
++#include <fmtftntx.hxx>
++#include <frmfmt.hxx>
++#include <ndtxt.hxx>
++#include <node.hxx>
++#include <pagedesc.hxx>
++#include <section.hxx>
++#include <svl/intitem.hxx>
++#include <svl/itemiter.hxx>
++#include <svl/itemset.hxx>
+ 
+ /// Covers sw/source/uibase/uiview/ fixes.
+ class SwUibaseUiviewTest : public SwModelTestBase
+@@ -544,6 +556,258 @@ CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testRedlineRenderModeInvalidate)
+     comphelper::LibreOfficeKit::setPartInInvalidation(false);
+ }
+ 
++namespace
++{
++/// Types "A", "B" and "C" as three paragraphs; selects "B" when bSelectMiddle is set.
++void InsertThreeParagraphs(SwWrtShell& rWrtShell, bool bSelectMiddle)
++{
++    rWrtShell.Insert(u"A"_ustr);
++    rWrtShell.SplitNode();
++    rWrtShell.Insert(u"B"_ustr);
++    rWrtShell.SplitNode();
++    rWrtShell.Insert(u"C"_ustr);
++    if (bSelectMiddle)
++    {
++        rWrtShell.Up(/*bSelect=*/false);
++        rWrtShell.SttPara();
++        rWrtShell.EndPara(/*bSelect=*/true);
++    }
++}
++
++/// Clicks a button of the Columns popup (One=1, Two=2, Three=3, Left=4, Right=5).
++void ExecPageColumnType(SwWrtShell& rWrtShell, sal_Int16 nType)
++{
++    SfxInt16Item aItem(SID_ATTR_PAGE_COLUMN, nType);
++    rWrtShell.GetView().GetViewFrame().GetDispatcher()->ExecuteList(
++        SID_ATTR_PAGE_COLUMN, SfxCallMode::SYNCHRON, { &aItem });
++}
++
++/// The column type the Columns popup and the sidebar show.
++sal_Int16 GetPageColumnTypeState(SwWrtShell& rWrtShell)
++{
++    SfxPoolItemHolder aResult;
++    rWrtShell.GetView().GetViewFrame().GetDispatcher()->QueryState(SID_ATTR_PAGE_COLUMN,
++                                                                   aResult);
++    auto pItem = dynamic_cast<const SfxInt16Item*>(aResult.getItem());
++    CPPUNIT_ASSERT(pItem);
++    return pItem->GetValue();
++}
++
++sal_uInt16 GetPageStyleColumnCount(SwDoc& rDoc)
++{
++    return rDoc.GetPageDesc(0).GetMaster().GetCol().GetNumCols();
++}
++
++/// Text of the paragraphs inside the section, joined with '|'.
++OUString GetSectionText(const SwSectionFormat& rFormat)
++{
++    const SwSectionNode* pSectNd = rFormat.GetSectionNode();
++    CPPUNIT_ASSERT(pSectNd);
++    OUStringBuffer aText;
++    for (SwNodeOffset n = pSectNd->GetIndex() + 1; n < pSectNd->EndOfSectionIndex(); ++n)
++    {
++        if (const SwTextNode* pTextNd = pSectNd->GetNodes()[n]->GetTextNode())
++        {
++            if (!aText.isEmpty())
++                aText.append('|');
++            aText.append(pTextNd->GetText());
++        }
++    }
++    return aText.makeStringAndClear();
++}
++
++/// Which-ids of the format attributes of each section, for failure messages.
++OString GetSectionAttrWhichIds(const SwDoc& rDoc)
++{
++    OStringBuffer aIds("section attributes:");
++    for (const SwSectionFormat* pFormat : rDoc.GetSections())
++    {
++        for (SfxItemIter aIter(pFormat->GetAttrSet()); !aIter.IsAtEnd(); aIter.NextItem())
++            aIds.append(" " + OString::number(aIter.GetCurItem()->Which()));
++        aIds.append(";");
++    }
++    return aIds.makeStringAndClear();
++}
++
++/// Puts a two-column section without column spacing around the selection, like an older
++/// HST Office or a DOCX import would have made it, then removes the selection.
++void InsertTwoColumnSection(SwWrtShell& rWrtShell, bool bFootnotesAtSectionEnd)
++{
++    SwDoc* pDoc = rWrtShell.GetDoc();
++    SwFormatCol aCol;
++    aCol.Init(2, 0, 10000);
++    SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<RES_COL, RES_COL, RES_FTN_AT_TXTEND,
++                                                    RES_FTN_AT_TXTEND>(pDoc->GetAttrPool()));
++    aSet.Put(aCol);
++    if (bFootnotesAtSectionEnd)
++        aSet.Put(SwFormatFootnoteAtTextEnd(FTNEND_ATTXTEND));
++    SwSectionData aData(SectionType::Content, UIName(u"Columns"_ustr));
++    rWrtShell.InsertSection(aData, &aSet);
++    rWrtShell.ClearMark();
++}
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeSelectionInsertsSection)
++{
++    // Given three paragraphs with the middle one selected:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++    const size_t nUndoCount = pDoc->GetUndoManager().GetUndoActionCount();
++
++    // When choosing "Two" in the Columns popup:
++    ExecPageColumnType(*pWrtShell, 2);
++
++    // Then only the selection is in two columns, like Word, and the page style keeps one.
++    // Without the fix the page style got two columns and there was no section.
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    const SwSectionFormat* pFormat = pDoc->GetSections()[0];
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(2), pFormat->GetCol().GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(u"B"_ustr, GetSectionText(*pFormat));
++    // Word's default spacing between columns: 1.27 cm = 720 twips.
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(720), pFormat->GetCol().GetGutterWidth(true));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(2), GetPageColumnTypeState(*pWrtShell));
++
++    // And one undo step takes it all back.
++    CPPUNIT_ASSERT_EQUAL(nUndoCount + 1, pDoc->GetUndoManager().GetUndoActionCount());
++    pWrtShell->Undo();
++    CPPUNIT_ASSERT(pDoc->GetSections().empty());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeSelectionLeftColumns)
++{
++    // Given three paragraphs with the middle one selected:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++
++    // When choosing "Left":
++    ExecPageColumnType(*pWrtShell, 4);
++
++    // Then the section has two columns, the text of the left one twice as wide, as for the
++    // page style, and the popup shows "Left".
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    const SwFormatCol& rCol = pDoc->GetSections()[0]->GetCol();
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(2), rCol.GetNumCols());
++    const sal_uInt16 nLeft = rCol.CalcPrtColWidth(0, rCol.GetWishWidth());
++    const sal_uInt16 nRight = rCol.CalcPrtColWidth(1, rCol.GetWishWidth());
++    CPPUNIT_ASSERT_LESS(20, std::abs(nLeft - 2 * nRight));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(4), GetPageColumnTypeState(*pWrtShell));
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeInColumnSection)
++{
++    // Given the cursor in a two-column section that only lays out columns:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++    InsertTwoColumnSection(*pWrtShell, /*bFootnotesAtSectionEnd=*/false);
++    CPPUNIT_ASSERT(!pWrtShell->HasSelection());
++
++    // Then the popup shows the columns of the section, not of the page style.
++    // Without the fix this was 1 (the page style).
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(2), GetPageColumnTypeState(*pWrtShell));
++
++    // When choosing "Three":
++    ExecPageColumnType(*pWrtShell, 3);
++
++    // Then the section has three columns with Word's spacing, the page style keeps one.
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(3), pDoc->GetSections()[0]->GetCol().GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(720), pDoc->GetSections()[0]->GetCol().GetGutterWidth(true));
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(3), GetPageColumnTypeState(*pWrtShell));
++
++    // When choosing "One":
++    const size_t nUndoCount = pDoc->GetUndoManager().GetUndoActionCount();
++    ExecPageColumnType(*pWrtShell, 1);
++
++    // Then the section, which only laid out columns, is gone and its text stays.
++    CPPUNIT_ASSERT_EQUAL_MESSAGE(GetSectionAttrWhichIds(*pDoc).getStr(), size_t(0),
++                                 pDoc->GetSections().size());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++    CPPUNIT_ASSERT_EQUAL(u"B"_ustr, pWrtShell->GetCursor()->GetPointNode().GetTextNode()->GetText());
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(1), GetPageColumnTypeState(*pWrtShell));
++
++    // And one undo step brings the three-column section back.
++    CPPUNIT_ASSERT_EQUAL(nUndoCount + 1, pDoc->GetUndoManager().GetUndoActionCount());
++    pWrtShell->Undo();
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(3), pDoc->GetSections()[0]->GetCol().GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(u"B"_ustr, GetSectionText(*pDoc->GetSections()[0]));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeOneKeepsSectionWithOtherSettings)
++{
++    // Given the cursor in a two-column section that also collects its footnotes:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++    InsertTwoColumnSection(*pWrtShell, /*bFootnotesAtSectionEnd=*/true);
++
++    // When choosing "One":
++    ExecPageColumnType(*pWrtShell, 1);
++
++    // Then the section stays, now with one column, and the page style is untouched.
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pDoc->GetSections().size());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), pDoc->GetSections()[0]->GetCol().GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(u"B"_ustr, GetSectionText(*pDoc->GetSections()[0]));
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeNoSelectionChangesPageStyle)
++{
++    // Given three paragraphs, no selection and no section:
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/false);
++    const size_t nUndoCount = pDoc->GetUndoManager().GetUndoActionCount();
++
++    // When choosing "Two":
++    ExecPageColumnType(*pWrtShell, 2);
++
++    // Then the page style gets two columns with Word's spacing (was 0 without the fix).
++    CPPUNIT_ASSERT(pDoc->GetSections().empty());
++    const SwFormatCol& rCol = pDoc->GetPageDesc(0).GetMaster().GetCol();
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(2), rCol.GetNumCols());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(720), rCol.GetGutterWidth(true));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(2), GetPageColumnTypeState(*pWrtShell));
++
++    // And one undo step takes it back.
++    CPPUNIT_ASSERT_EQUAL(nUndoCount + 1, pDoc->GetUndoManager().GetUndoActionCount());
++    pWrtShell->Undo();
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(0), GetPageStyleColumnCount(*pDoc));
++}
++
++CPPUNIT_TEST_FIXTURE(SwUibaseUiviewTest, testPageColumnTypeSelectionDocxExport)
++{
++    // Given the middle paragraph put in two columns from the Columns popup:
++    createSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    InsertThreeParagraphs(*pWrtShell, /*bSelectMiddle=*/true);
++    ExecPageColumnType(*pWrtShell, 2);
++
++    // When saving to DOCX:
++    save(TestFilter::DOCX);
++
++    // Then the paragraph is a section of its own behind a continuous section break, with two
++    // columns and Word's spacing, and the last section (the page style) has no columns.
++    xmlDocUniquePtr pXml = parseExport(u"word/document.xml"_ustr);
++    const OString aColumns = "/w:document/w:body/w:p/w:pPr/w:sectPr[w:type/@w:val='continuous']"
++                             "/w:cols[@w:num='2']"_ostr;
++    assertXPath(pXml, aColumns, 1);
++    assertXPath(pXml, aColumns, "space", u"720");
++    assertXPath(pXml, "/w:document/w:body/w:sectPr/w:cols[@w:num='2']"_ostr, 0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/sidebar/PageColumnControl.cxx
++++ b/sw/source/uibase/sidebar/PageColumnControl.cxx
+@@ -27,6 +27,7 @@
+ #include <sfx2/dispatch.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <svl/intitem.hxx>
++#include <svl/itemset.hxx>
+ #include <svx/pageitem.hxx>
+ #include <vcl/weld/Builder.hxx>
+ 
+@@ -115,7 +116,18 @@ IMPL_LINK( PageColumnControl, ColumnButtonClickHdl_Impl, weld::Button&, rButton,
+ IMPL_LINK_NOARG( PageColumnControl, MoreButtonClickHdl_Impl, weld::Button&, void )
+ {
+     if (SfxViewFrame* pViewFrm = SfxViewFrame::Current())
+-        pViewFrm->GetBindings().GetDispatcher()->Execute( FN_FORMAT_PAGE_COLUMN_DLG, SfxCallMode::ASYNCHRON );
++    {
++        // Format Columns has "Apply to" (selection, section, page style) like the buttons
++        // above; the page style dialog only covers the page style, so it is the fallback
++        // where Format Columns is unavailable (for example a drawing object selected).
++        SfxDispatcher* pDispatcher = pViewFrm->GetBindings().GetDispatcher();
++        SfxPoolItemHolder aState;
++        const sal_uInt16 nSlot
++            = pDispatcher->QueryState(FN_FORMAT_COLUMN, aState) >= SfxItemState::DEFAULT
++                  ? FN_FORMAT_COLUMN
++                  : FN_FORMAT_PAGE_COLUMN_DLG;
++        pDispatcher->Execute(nSlot, SfxCallMode::ASYNCHRON);
++    }
+     m_xControl->EndPopupMode();
+ }
+ 
+--- a/sw/source/uibase/uiview/viewtab.cxx
++++ b/sw/source/uibase/uiview/viewtab.cxx
+@@ -62,6 +62,12 @@
+ #include <osl/diagnose.h>
+ 
+ #include <IDocumentSettingAccess.hxx>
++#include <doc.hxx>
++#include <fmteiro.hxx>
++#include <swundo.hxx>
++#include <svl/itemiter.hxx>
++#include <sal/log.hxx>
++#include <algorithm>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -226,6 +232,193 @@ static void ResizeFrameCols(SwFormatCol& rCol,
+ }
+ 
+ // Here all changes to the tab bar will be shot again into the model.
++// Column layouts sent by the Columns popup (SID_ATTR_PAGE_COLUMN):
++// 1 - one column, 2 - two equal columns, 3 - three equal columns,
++// 4 - two columns, the left one twice as wide as the right one,
++// 5 - two columns, the right one twice as wide as the left one.
++constexpr sal_uInt16 PAGE_COLUMN_TYPE_ONE = 1;
++constexpr sal_uInt16 PAGE_COLUMN_TYPE_LAST = 5;
++
++// Spacing Word uses between new columns: 0.5 inch = 1.27 cm, in twips.
++constexpr sal_uInt16 DEFAULT_COLUMN_GUTTER = 720;
++
++// Builds the columns for a popup column type over an area nWidth twips wide.
++// Line settings come from rOld; its spacing is kept when it already has columns
++// with a non-zero spacing, otherwise the Word default spacing is used.
++static SwFormatCol lcl_MakeColumnsOfType(const SwFormatCol& rOld, sal_uInt16 nColumnType,
++                                         tools::Long nWidth)
++{
++    sal_uInt16 nCount = 2;
++    if (nColumnType == PAGE_COLUMN_TYPE_ONE)
++        nCount = 0;
++    else if (nColumnType == 3)
++        nCount = 3;
++
++    const sal_uInt16 nAct = static_cast<sal_uInt16>(std::clamp<tools::Long>(nWidth, 1, USHRT_MAX));
++    sal_uInt16 nGutterWidth = 0;
++    if (nCount)
++    {
++        if (rOld.GetNumCols() > 1)
++        {
++            nGutterWidth = rOld.GetGutterWidth(true);
++        }
++        if (!nGutterWidth)
++            nGutterWidth = DEFAULT_COLUMN_GUTTER;
++        // Spacing never takes more than half of a narrow area (table cell, small frame).
++        nGutterWidth = std::min<sal_uInt16>(nGutterWidth, nAct / (2 * (nCount - 1)));
++    }
++
++    SwFormatCol aCols(rOld);
++    aCols.Init(nCount, nGutterWidth, nAct);
++    aCols.SetWishWidth(nAct);
++    aCols.SetGutterWidth(nGutterWidth, nAct);
++    aCols.SetOrtho(false, nGutterWidth, nAct);
++
++    if (nColumnType == 4 || nColumnType == 5)
++    {
++        // The text of the wide column is twice the text of the narrow one; each column
++        // carries half of the spacing, as Init() laid it out.
++        const sal_uInt16 nHalfGutter = nGutterWidth / 2;
++        const sal_uInt16 nNarrow = (nAct - nGutterWidth) / 3 + nHalfGutter;
++        const sal_uInt16 nWide = nAct - nNarrow;
++        aCols.GetColumns()[0].SetWishWidth(nColumnType == 4 ? nWide : nNarrow);
++        aCols.GetColumns()[1].SetWishWidth(nColumnType == 4 ? nNarrow : nWide);
++    }
++    return aCols;
++}
++
++// The section around the cursor whose columns the Columns popup changes: the innermost
++// enclosing section with more than one column, not counting index sections. With a
++// selection both ends have to be in the same section (or the selection is exactly one
++// section), as in the Format Columns dialog.
++static const SwSection* lcl_GetColumnSection(SwWrtShell& rSh)
++{
++    const SwSection* pSect = rSh.GetCurrSection();
++    if (!pSect)
++        return nullptr;
++    if (rSh.HasSelection() && rSh.GetFullSelectedSectionCount() != 1)
++    {
++        const SwPaM* pCursor = rSh.GetCursor();
++        if (pCursor->GetNext() != pCursor || !pCursor->HasMark()
++            || SwDoc::GetCurrSection(*pCursor->GetMark()) != pSect)
++            return nullptr;
++    }
++    for (; pSect; pSect = pSect->GetParent())
++    {
++        const SectionType eType = pSect->GetType();
++        const SwSectionFormat* pFormat = pSect->GetFormat();
++        if (eType != SectionType::ToxHeader && eType != SectionType::ToxContent && pFormat
++            && pFormat->GetCol().GetNumCols() > 1)
++            return pSect;
++    }
++    return nullptr;
++}
++
++// A new section with columns can be put around the selection: same conditions as the
++// "Selection" entry of the Format Columns dialog.
++static bool lcl_CanInsertColumnSection(SwWrtShell& rSh)
++{
++    if (!rSh.HasSelection() || !rSh.IsInsRegionAvailable())
++        return false;
++    const SwSection* pSect = rSh.GetCurrSection();
++    if (!pSect)
++        return true;
++    const SwPaM* pCursor = rSh.GetCursor();
++    return rSh.GetFullSelectedSectionCount() != 1 && pCursor->HasMark()
++           && SwDoc::GetCurrSection(*pCursor->GetMark()) == pSect;
++}
++
++// True when the section does nothing but lay out columns: plain content, not protected,
++// hidden, conditional or linked, and no format attribute besides the column ones (attributes
++// that only repeat the default value do not count).
++// Removing such a section on "one column" keeps its text and nothing else is lost.
++static bool lcl_IsColumnsOnlySection(const SwSection& rSect)
++{
++    if (rSect.GetType() != SectionType::Content || rSect.IsProtectFlag() || rSect.IsHidden()
++        || !rSect.GetCondition().isEmpty())
++        return false;
++    const SwSectionFormat* pFormat = rSect.GetFormat();
++    if (!pFormat)
++        return false;
++    const SfxItemSet& rAttrs = pFormat->GetAttrSet();
++    for (SfxItemIter aIter(rAttrs); !aIter.IsAtEnd(); aIter.NextItem())
++    {
++        const SfxPoolItem* pItem = aIter.GetCurItem();
++        if (*pItem == rAttrs.GetPool()->GetUserOrPoolDefaultItem(pItem->Which()))
++            continue;
++        switch (pItem->Which())
++        {
++            case RES_CNTNT: // the link to the section's own nodes
++            case RES_FILL_ORDER: // written by the column layout itself
++            case RES_COL:
++            case RES_COLUMNBALANCE:
++            case RES_FRM_SIZE:
++                break;
++            case RES_FRAMEDIR:
++                if (static_cast<const SvxFrameDirectionItem*>(pItem)->GetValue()
++                    != SvxFrameDirection::Environment)
++                    return false;
++                break;
++            case RES_PROTECT:
++                if (static_cast<const SvxProtectItem*>(pItem)->IsContentProtected())
++                    return false;
++                break;
++            case RES_EDIT_IN_READONLY:
++                if (static_cast<const SwFormatEditInReadonly*>(pItem)->GetValue())
++                    return false;
++                break;
++            default:
++                return false;
++        }
++    }
++    return true;
++}
++
++// Columns popup inside a section with columns: "one column" removes a section that only
++// lays out columns and otherwise drops its columns; the other types change its columns.
++static void lcl_ApplyColumnsToSection(SwWrtShell& rSh, const SwSection& rSect,
++                                      sal_uInt16 nColumnType, tools::Long nFallbackWidth)
++{
++    const SwSectionFormat* pFormat = rSect.GetFormat();
++    const size_t nPos = rSh.GetSectionFormatPos(*pFormat);
++    if (nColumnType == PAGE_COLUMN_TYPE_ONE && lcl_IsColumnsOnlySection(rSect))
++    {
++        rSh.StartUndo(SwUndoId::DELSECTION);
++        rSh.DelSectionFormat(nPos);
++        rSh.EndUndo(SwUndoId::DELSECTION);
++        return;
++    }
++
++    tools::Long nWidth = rSh.GetSectionWidth(*pFormat);
++    if (nWidth <= 0)
++        nWidth = nFallbackWidth;
++    SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<RES_COL, RES_COL>(rSh.GetAttrPool()));
++    aSet.Put(lcl_MakeColumnsOfType(pFormat->GetCol(), nColumnType, nWidth));
++    SwSectionData aData(rSect);
++    rSh.StartUndo(SwUndoId::CHGSECTION);
++    rSh.UpdateSection(nPos, aData, &aSet);
++    rSh.EndUndo(SwUndoId::CHGSECTION);
++}
++
++// Columns popup with a selection: put a new section with the columns around it, like
++// Format Columns with "Apply to: Selection". Saved to DOCX as continuous section breaks.
++static void lcl_InsertColumnSection(SwWrtShell& rSh, sal_uInt16 nColumnType,
++                                    tools::Long nFallbackWidth)
++{
++    SwRect aRect;
++    rSh.CalcBoundRect(aRect, RndStdIds::FLY_AS_CHAR);
++    tools::Long nWidth = aRect.Width();
++    if (nWidth <= 0)
++        nWidth = nFallbackWidth;
++
++    SfxItemSet aSet(SfxItemSet::makeFixedSfxItemSet<RES_COL, RES_COL>(rSh.GetAttrPool()));
++    aSet.Put(lcl_MakeColumnsOfType(SwFormatCol(), nColumnType, nWidth));
++    SwSectionData aSection(SectionType::Content, UIName(rSh.GetUniqueSectionName()));
++    rSh.StartUndo(SwUndoId::INSSECTION);
++    rSh.InsertSection(aSection, &aSet);
++    rSh.EndUndo(SwUndoId::INSSECTION);
++}
++
+ void SwView::ExecTabWin( SfxRequest const & rReq )
+ {
+     SwWrtShell &rSh         = GetWrtShell();
+@@ -560,57 +753,35 @@ void SwView::ExecTabWin( SfxRequest const & rReq )
+         if ( pReqArgs )
+         {
+             const SfxInt16Item aColumnItem( static_cast<const SfxInt16Item&>(pReqArgs->Get(nSlot)) );
+-            const sal_uInt16 nPageColumnType = aColumnItem.GetValue();
+-
+-            // nPageColumnType =
+-            // 1 - single-columned page
+-            // 2 - two-columned page
+-            // 3 - three-columned page
+-            // 4 - two-columned page with left column width of 2/3 of page width
+-            // 5 - two-columned page with right column width of 2/3 of page width
+-
+-            sal_uInt16 nCount = 2;
+-            if ( nPageColumnType == 1 )
++            const sal_Int16 nRequestedType = aColumnItem.GetValue();
++            if (nRequestedType < PAGE_COLUMN_TYPE_ONE || nRequestedType > PAGE_COLUMN_TYPE_LAST)
+             {
+-                nCount = 0;
+-            }
+-            else if ( nPageColumnType == 3 )
+-            {
+-                nCount = 3;
++                SAL_WARN("sw.ui", "SID_ATTR_PAGE_COLUMN: unknown column type " << nRequestedType);
++                break;
+             }
+-
+-            const sal_uInt16 nGutterWidth = 0;
++            const sal_uInt16 nPageColumnType = static_cast<sal_uInt16>(nRequestedType);
+ 
+             const SvxLRSpaceItem aLR( rDesc.GetMaster().GetLRSpace() );
+             const tools::Long nLeft = aLR.ResolveLeft();
+             const tools::Long nRight = aLR.ResolveRight({});
+             const tools::Long nWidth = nPageWidth - nLeft - nRight;
+ 
+-            SwFormatCol aCols( rDesc.GetMaster().GetCol() );
+-            aCols.Init( nCount, nGutterWidth, nWidth );
+-            aCols.SetWishWidth( nWidth );
+-            aCols.SetGutterWidth( nGutterWidth, nWidth );
+-            aCols.SetOrtho( false, nGutterWidth, nWidth );
+-
+-            tools::Long nColumnLeft = 0;
+-            tools::Long nColumnRight = 0;
+-            if ( nPageColumnType == 4 )
++            // Like Word: the section around the cursor, else a new section around the
++            // selection, else the page style.
++            if (const SwSection* pColumnSection = lcl_GetColumnSection(rSh))
+             {
+-                nColumnRight = static_cast<tools::Long>(nWidth/3);
+-                nColumnLeft = nWidth - nColumnRight;
+-                aCols.GetColumns()[0].SetWishWidth( nColumnLeft );
+-                aCols.GetColumns()[1].SetWishWidth( nColumnRight );
++                lcl_ApplyColumnsToSection(rSh, *pColumnSection, nPageColumnType, nWidth);
++                break;
+             }
+-            else if ( nPageColumnType == 5 )
++            if (nPageColumnType != PAGE_COLUMN_TYPE_ONE && lcl_CanInsertColumnSection(rSh))
+             {
+-                nColumnLeft = static_cast<tools::Long>(nWidth/3);
+-                nColumnRight = nWidth - nColumnLeft;
+-                aCols.GetColumns()[0].SetWishWidth( nColumnLeft );
+-                aCols.GetColumns()[1].SetWishWidth( nColumnRight );
++                lcl_InsertColumnSection(rSh, nPageColumnType, nWidth);
++                break;
+             }
+ 
+             SwPageDesc aDesc( rDesc );
+-            aDesc.GetMaster().SetFormatAttr( aCols );
++            aDesc.GetMaster().SetFormatAttr(
++                lcl_MakeColumnsOfType(rDesc.GetMaster().GetCol(), nPageColumnType, nWidth));
+             rSh.ChgPageDesc( rSh.GetCurPageDesc(), aDesc );
+         }
+         break;
+@@ -1442,8 +1613,10 @@ void SwView::StateTabWin(SfxItemSet& rSet)
+         {
+             sal_uInt16 nColumnType = 0;
+ 
+-            const SwFrameFormat& rMaster = rDesc.GetMaster();
+-            const SwFormatCol& aCol(rMaster.GetCol());
++            // Inside a section with columns the Columns popup works on that section.
++            const SwSection* pColumnSection = lcl_GetColumnSection(rSh);
++            const SwFormatCol& aCol(pColumnSection ? pColumnSection->GetFormat()->GetCol()
++                                                   : rDesc.GetMaster().GetCol());
+             const sal_uInt16 nCols = aCol.GetNumCols();
+             if ( nCols == 0 )
+             {
