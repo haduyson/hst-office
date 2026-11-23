@@ -207,8 +207,13 @@ def plus(office, which, title):
     subprocess.run(["sample", str(PID), "5", "-file", f"{OUT}/{LABEL}-{which}-sample.txt"], check=False,
                    capture_output=True)
     # switch: click the first tab (its label, left of its close glyph), as the owner tried
-    if first_x is not None and y is not None:
-        fx = first_x + 30  # inside the first tab label
+    # the tab row may have moved (a native tab bar): locate it again on the current screen
+    again = f"{OUT}/{LABEL}-{which}-relocate.png"
+    subprocess.run(["screencapture", "-x", again], check=False)
+    _x2, _y2, _f2, info2 = locate_tab_row(again)
+    labels = tab_targets(info2)
+    if labels and info2.get("x_row"):
+        fx, y = labels[0], info2["x_row"]
         subprocess.run(["cliclick", f"c:{fx},{y}"], check=False, timeout=20)
         time.sleep(2)
         sw = office.state(f"{which}-after-tab-click")
