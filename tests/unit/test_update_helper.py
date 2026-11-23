@@ -75,6 +75,24 @@ class HelperContract(unittest.TestCase):
         self.assertLess(text.index("Write-Step 'Process exited'"), text.index("Get-FileHash"))
         self.assertLess(text.index("Get-FileHash"), text.index("if ($DryRun)"))
 
+    def test_windows_waits_for_every_office_process_and_reports_a_needed_restart(self):
+        text = build("Windows")["text"]
+        # Other processes run from the installation (another session's copy, its Python) hold files that Windows
+        # Installer could only replace at the next restart: wait for them, give up as "busy" before msiexec.
+        wait = text.index("$_.Path.StartsWith($programDir, [System.StringComparison]::OrdinalIgnoreCase)")
+        self.assertIn("$programDir = (Split-Path -Parent $Soffice).TrimEnd('\\') + '\\'", text)
+        self.assertLess(text.index("Write-Step 'Process exited'"), wait)
+        self.assertLess(wait, text.index("$fail = 'busy'"))
+        self.assertLess(text.index("$fail = 'busy'"), text.index("Start-Process msiexec.exe"))
+        self.assertIn("$_.Id -ne $PID", text)
+        # 3010 stays a success (installer deleted, office reopened, exit 0) and leaves a "reboot" record for the new build.
+        success = text.index("if ($result.ExitCode -eq 0 -or $result.ExitCode -eq 3010) {")
+        reboot = text.index("Write-Failure 'reboot' 3010")
+        self.assertLess(success, text.index("Remove-Item -LiteralPath $Installer"))
+        self.assertLess(text.index("Remove-Item -LiteralPath $Installer"), reboot)
+        self.assertLess(text.index("if ($result.ExitCode -eq 3010) {"), reboot)
+        self.assertLess(reboot, text.index("} else {\n                $code = $result.ExitCode"))
+
     def test_sha256_is_required_and_validated(self):
         with self.assertRaises(TypeError):
             cmd.build_helper("Linux", pid=123, installer="/tmp/package.deb", soffice="/opt/soffice", log="/tmp/update.log")

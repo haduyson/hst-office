@@ -41,6 +41,25 @@ class Reader(unittest.TestCase):
         self.assertIsNone(outcome.take(self.temp.name, "1.0.0"))
         self.assertFalse(self.path.exists())
 
+    def test_reboot_record_is_for_the_installed_version(self):
+        # written by the new version's helper (msiexec 3010) and read by the new version it reopened
+        self.write(record(code="reboot", exit=3010))
+        self.assertEqual(outcome.take(self.temp.name, "1.0.0"), record(code="reboot", exit=3010))
+        self.write(record(code="reboot", exit=3010))
+        self.assertIsNone(outcome.take(self.temp.name, "1.0.0-beta.5"))
+        self.assertFalse(self.path.exists())
+
+    def test_reboot_message_asks_for_a_restart_not_a_retry(self):
+        vi = outcome.message(TEXTS["vi"], record(code="reboot", exit=3010), "/x/update.log")
+        en = outcome.message(TEXTS["en"], record(code="reboot", exit=3010), "/x/update.log")
+        self.assertIn("khởi động lại máy", vi)
+        self.assertIn("restart the computer", en)
+        for text in (vi, en):
+            self.assertIn("HST Office 1.0.0", text)
+            self.assertIn("/x/update.log", text)
+        self.assertNotIn(TEXTS["vi"]["outcome_next"].split("\n")[0], vi)
+        self.assertNotIn(TEXTS["en"]["outcome_next"].split("\n")[0], en)
+
     def test_malformed_records_are_dropped(self):
         for bad in ("", "{", "[]", record(schema=2), record(code="cancel"), record(exit="100"), record(to=None), "x" * 2000):
             with self.subTest(bad=str(bad)[:40]):
