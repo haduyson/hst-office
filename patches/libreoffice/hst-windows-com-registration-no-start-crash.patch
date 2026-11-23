@@ -1,0 +1,41 @@
+HST Office: the office starts when its COM automation component cannot be loaded.
+
+On Windows, every start registers the office's COM class factories by creating
+com.sun.star.bridge.OleApplicationRegistration (oleautobridgelo.dll) and
+com.sun.star.comp.ole.EmbedServer. Nothing caught a failure there: when Windows refused to load
+oleautobridgelo.dll (the file quarantined or blocked on that PC), the CannotActivateFactoryException
+left the start-up user event unhandled and the office crashed a few seconds after every start,
+before any document could be opened (error report: C++ exception e06d7363 from cppuhelper's
+"loading component library <...> failed", called from Desktop::OpenClients_Impl).
+
+Both registrations are optional for working with documents (they let other programs drive the
+office or embed its objects), so a failure is now logged and the start goes on; each one is tried
+on its own.
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -2002,8 +2002,20 @@
+         vcl::fileregistration::CheckFileExtRegistration(SfxGetpApp()->GetTopWindow());
+     // Registers a COM class factory of the service manager with the windows operating system.
+     Reference< XMultiServiceFactory > xSMgr=  comphelper::getProcessServiceFactory();
+-    xSMgr->createInstance("com.sun.star.bridge.OleApplicationRegistration");
+-    xSMgr->createInstance("com.sun.star.comp.ole.EmbedServer");
++    // HST Office: COM automation and embedding are optional; a component Windows does not load
++    // (quarantined, blocked) must not end every start with an unhandled exception
++    for (const char* pService : { "com.sun.star.bridge.OleApplicationRegistration",
++                                  "com.sun.star.comp.ole.EmbedServer" })
++    {
++        try
++        {
++            xSMgr->createInstance(OUString::createFromAscii(pService));
++        }
++        catch (const css::uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("desktop.app", "no COM registration: " << pService);
++        }
++    }
+ #endif
+     const char *pExitPostStartup = getenv ("OOO_EXIT_POST_STARTUP");
+     if (pExitPostStartup && *pExitPostStartup)
