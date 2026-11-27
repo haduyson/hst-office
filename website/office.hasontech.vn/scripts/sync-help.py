@@ -23,25 +23,15 @@ REPO = subprocess.run(["git", "-C", SITE, "rev-parse", "--show-toplevel"], captu
 SRC = "extensions/hst-vietnamese-tools/help"
 OUT = os.path.join(SITE, "huong-dan")
 BASE = "https://office.hasontech.vn"
-GA = """  <!-- Google tag (gtag.js): tải sau thao tác đầu tiên hoặc 4 giây sau khi trang tải xong (xem index.html). -->
+GA = """  <!-- Google tag (gtag.js) + Consent Mode v2: mặc định từ chối mọi lưu trữ; /assets/js/consent.js hỏi đồng ý và chỉ tải gtag.js sau khi người xem bấm Đồng ý. -->
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
+    gtag('consent', 'default', {analytics_storage: 'denied', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'});
     gtag('js', new Date());
-    gtag('config', 'G-LRLQZ0R9QJ');
-    (function () {
-      var loaded = false, events = ['scroll', 'pointerdown', 'keydown', 'touchstart'];
-      function load() {
-        if (loaded) return; loaded = true;
-        events.forEach(function (e) { removeEventListener(e, load); });
-        var s = document.createElement('script'); s.async = true;
-        s.src = 'https://www.googletagmanager.com/gtag/js?id=G-LRLQZ0R9QJ';
-        document.head.appendChild(s);
-      }
-      events.forEach(function (e) { addEventListener(e, load, { once: true, passive: true }); });
-      addEventListener('load', function () { setTimeout(load, 4000); });
-    })();
+    gtag('config', 'G-LRLQZ0R9QJ', {cookie_domain: 'office.hasontech.vn'});
   </script>
+  <script src="/assets/js/consent.js?v=1" defer></script>
 """
 
 
